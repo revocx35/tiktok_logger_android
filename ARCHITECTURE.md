@@ -38,6 +38,11 @@ is sent) with `REPEAT_MODE_ONE`; the video URL is `/api/feed/media/<ref>`, a sho
 to the signed CDN URL and streams (no Range support server-side: the server sends the whole body once). Sound is muted
 by default, like the web UI.
 
+Scaling: the rail's resize button switches between **fill** (`AspectRatioFrameLayout.RESIZE_MODE_ZOOM`, the default —
+TikTok's look, a video that is not 9:16 loses its sides) and **fit** (`RESIZE_MODE_FIT`, the whole frame with black
+bars). The poster uses the matching `ContentScale`, and the choice is stored in `Prefs.feedFitVideo` so it survives a
+restart. `feedResizeMode()`/`feedContentScale()` are the single mapping from the flag to the two surfaces.
+
 ## Chats and messages
 
 `ChatScreens`/`ChatViewModel` page through `GET /api/messages` (`before`/`after`/`around`), render `MessageType`s

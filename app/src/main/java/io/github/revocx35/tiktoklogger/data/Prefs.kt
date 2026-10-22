@@ -59,6 +59,14 @@ class Prefs(context: Context) {
         get() = sp.getString(KEY_AUTOSAVE_ERROR, null)
         set(v) = sp.edit().putString(KEY_AUTOSAVE_ERROR, v).apply()
 
+    /**
+     * Feed video scaling: false fills the screen (TikTok's look, the sides of a wide video are cropped away),
+     * true shows the whole frame with black bars. The Feed's resize button writes it.
+     */
+    var feedFitVideo: Boolean
+        get() = sp.getBoolean(KEY_FEED_FIT, false)
+        set(v) = sp.edit().putBoolean(KEY_FEED_FIT, v).apply()
+
     /** The media-feed position, valid only for the server it was taken from. */
     fun autoSaveCursor(server: String): String? =
         if (sp.getString(KEY_AUTOSAVE_SERVER, null) == server) sp.getString(KEY_AUTOSAVE_CURSOR, null) else null
@@ -85,5 +93,6 @@ class Prefs(context: Context) {
         const val KEY_AUTOSAVE_ERROR = "autosave_error"
         const val KEY_AUTOSAVE_SERVER = "autosave_server"
         const val KEY_AUTOSAVE_CURSOR = "autosave_cursor"
+        const val KEY_FEED_FIT = "feed_fit_video"
     }
 }

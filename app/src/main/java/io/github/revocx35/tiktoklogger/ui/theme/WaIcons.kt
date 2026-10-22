@@ -67,6 +67,12 @@ object WaIcons {
     val videoOff: ImageVector by lazy { icon("videoOff", "M3.3 2 2 3.3 4.7 6H3a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12c.2 0 .4-.1.6-.2l3.1 3.1 1.3-1.3L3.3 2zM21 7l-5 3.5V7a1 1 0 0 0-1-1H9.8L21 17.2V7z") }
     val zoomIn: ImageVector by lazy { icon("zoomIn", "M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14zm.5-7H9v2H7v1h2v2h1v-2h2V9h-2z") }
 
+    /** Feed: show the whole frame (arrows inward). The action offered while the video fills the screen. */
+    val fitScreen: ImageVector by lazy { icon("fitScreen", "M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z") }
+
+    /** Feed: fill the screen (arrows outward). The action offered while the whole frame is shown. */
+    val fillScreen: ImageVector by lazy { icon("fillScreen", "M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z") }
+
     private fun icon(name: String, d: String): ImageVector =
         ImageVector.Builder(name = name, defaultWidth = 24.dp, defaultHeight = 24.dp, viewportWidth = 24f, viewportHeight = 24f)
             .addPath(pathData = addPathNodes(d), fill = SolidColor(Color.Black))

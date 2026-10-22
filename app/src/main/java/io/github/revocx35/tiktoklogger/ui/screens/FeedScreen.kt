@@ -53,6 +53,7 @@ import coil3.compose.AsyncImage
 import io.github.revocx35.tiktoklogger.core.ChatSummary
 import io.github.revocx35.tiktoklogger.core.FeedComment
 import io.github.revocx35.tiktoklogger.core.FeedItem
+import io.github.revocx35.tiktoklogger.data.Prefs
 import io.github.revocx35.tiktoklogger.data.ServerSession
 import io.github.revocx35.tiktoklogger.media.buildPlayer
 import io.github.revocx35.tiktoklogger.ui.components.ErrorNote
@@ -231,7 +232,7 @@ private fun compact(n: Long?): String = when {
 
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
-fun FeedScreen(vm: FeedViewModel, session: ServerSession, connected: Boolean) {
+fun FeedScreen(vm: FeedViewModel, session: ServerSession, connected: Boolean, prefs: Prefs) {
     if (!connected) {
         Box(Modifier.fillMaxSize().padding(28.dp), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -251,6 +252,8 @@ fun FeedScreen(vm: FeedViewModel, session: ServerSession, connected: Boolean) {
     val player = remember(session) { buildPlayer(context, session.api.http).apply { repeatMode = Player.REPEAT_MODE_ONE } }
     var muted by remember { mutableStateOf(true) }
     var sending by remember { mutableStateOf(false) }
+    // Whole frame ("fit") or cropped to the screen ("fill"). Remembered across app restarts in Prefs.
+    var fit by remember(prefs) { mutableStateOf(prefs.feedFitVideo) }
 
     DisposableEffect(player) { onDispose { player.release() } }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -291,16 +294,20 @@ fun FeedScreen(vm: FeedViewModel, session: ServerSession, connected: Boolean) {
                     factory = { ctx ->
                         PlayerView(ctx).apply {
                             useController = false
-                            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                            resizeMode = feedResizeMode(fit)
                             setShutterBackgroundColor(android.graphics.Color.BLACK)
                         }
                     },
-                    update = { it.player = player },
+                    update = {
+                        it.player = player
+                        // The resize button only swaps the scale, so the same surface keeps playing.
+                        if (it.resizeMode != feedResizeMode(fit)) it.resizeMode = feedResizeMode(fit)
+                    },
                     onRelease = { it.player = null },
                     modifier = Modifier.fillMaxSize(),
                 )
             } else if (poster != null) {
-                AsyncImage(poster, null, imageLoader = session.imageLoader, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                AsyncImage(poster, null, imageLoader = session.imageLoader, contentScale = feedContentScale(fit), modifier = Modifier.fillMaxSize())
             }
 
             // Tap: play/pause. Swipe up/down: next/previous video (TikTok's own order, driven by the server).
@@ -354,30 +361,28 @@ fun FeedScreen(vm: FeedViewModel, session: ServerSession, connected: Boolean) {
                 )
             }
 
-            // Right rail: like, comments, send, mute, refresh.
-            Column(
-                Modifier.align(Alignment.CenterEnd).padding(end = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(18.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                FeedAction(
-                    icon = WaIcons.heart,
-                    label = compact(item.stats.likes),
-                    active = item.liked,
-                    tint = if (item.liked) Color(0xFFFE2C55) else Color.White,
-                    onClick = { vm.toggleLike() },
-                )
-                FeedAction(WaIcons.comment, compact(item.stats.comments), false, Color.White) {
-                    vm.loadComments()
-                }
-                FeedAction(WaIcons.forward, "Send", false, Color.White) {
+            // Right rail: like, comments, send, resize (fit/fill), mute, refresh.
+            FeedActionRail(
+                likes = item.stats.likes,
+                commentsCount = item.stats.comments,
+                liked = item.liked,
+                muted = muted,
+                fit = fit,
+                onLike = { vm.toggleLike() },
+                onComments = { vm.loadComments() },
+                onSend = {
                     vm.clearSendState()
                     vm.loadChats()
                     sending = true
-                }
-                FeedAction(WaIcons.mute, if (muted) "Sound" else "Mute", muted, Color.White) { muted = !muted }
-                FeedAction(WaIcons.refresh, "", false, Color.White) { vm.refresh() }
-            }
+                },
+                onToggleFit = {
+                    fit = !fit
+                    prefs.feedFitVideo = fit
+                },
+                onToggleMute = { muted = !muted },
+                onRefresh = { vm.refresh() },
+                modifier = Modifier.align(Alignment.CenterEnd).padding(end = 10.dp),
+            )
 
             // Up/down arrows: same as swiping, easier with one hand.
             Column(
@@ -404,6 +409,50 @@ fun FeedScreen(vm: FeedViewModel, session: ServerSession, connected: Boolean) {
     }
 }
 
+/**
+ * The action column next to the video. The resize entry offers the mode you are **not** in: "Fit" while the video
+ * fills the screen (a wide video loses its sides), "Fill" while the whole frame is shown with black bars.
+ */
+@Composable
+internal fun FeedActionRail(
+    likes: Long?,
+    commentsCount: Long?,
+    liked: Boolean,
+    muted: Boolean,
+    fit: Boolean,
+    onLike: () -> Unit,
+    onComments: () -> Unit,
+    onSend: () -> Unit,
+    onToggleFit: () -> Unit,
+    onToggleMute: () -> Unit,
+    onRefresh: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        FeedAction(WaIcons.heart, compact(likes), liked, if (liked) Color(0xFFFE2C55) else Color.White, onLike, "Like")
+        FeedAction(WaIcons.comment, compact(commentsCount), false, Color.White, onComments, "Comments")
+        FeedAction(WaIcons.forward, "Send", false, Color.White, onSend, "Send this video to a chat")
+        FeedAction(
+            icon = if (fit) WaIcons.fillScreen else WaIcons.fitScreen,
+            label = if (fit) "Fill" else "Fit",
+            active = false,
+            tint = Color.White,
+            onClick = onToggleFit,
+            description = if (fit) "Fill the screen" else "Fit the whole video on the screen",
+        )
+        FeedAction(WaIcons.mute, if (muted) "Sound" else "Mute", muted, Color.White, onToggleMute, if (muted) "Turn the sound on" else "Mute")
+        FeedAction(WaIcons.refresh, "", false, Color.White, onRefresh, "Refresh the feed")
+    }
+}
+
+/** The player's frame mode for the chosen scaling: `fit` shows the whole frame, otherwise the video fills the screen. */
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+internal fun feedResizeMode(fit: Boolean): Int =
+    if (fit) AspectRatioFrameLayout.RESIZE_MODE_FIT else AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+
+/** The poster's scale, so the still frame matches the video that replaces it. */
+internal fun feedContentScale(fit: Boolean): ContentScale = if (fit) ContentScale.Fit else ContentScale.Crop
+
 @Composable
 private fun FeedAction(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
@@ -411,13 +460,14 @@ private fun FeedAction(
     active: Boolean,
     tint: Color,
     onClick: () -> Unit,
+    description: String = label,
 ) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Box(
             Modifier.size(48.dp).clip(CircleShape).background(Color(0x66000000)),
             contentAlignment = Alignment.Center,
         ) {
-            IconBtn(icon, label, onClick, size = 44.dp, iconSize = 24.dp, tint = tint, active = active)
+            IconBtn(icon, description, onClick, size = 44.dp, iconSize = 24.dp, tint = tint, active = active)
         }
         if (label.isNotEmpty()) Text(label, color = Color.White, style = WaType.small)
     }

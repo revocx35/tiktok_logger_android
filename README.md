@@ -32,7 +32,9 @@ Through the same server API as the web UI (`shared/api.d.ts` of tiktok_logger):
   the server, then confirmed by re-reading the chat.
 - **Feed:** TikTok's For You as the server sees it — one video at a time, swipe up/down (or the arrows) to move, tap to
   pause, ♥ to like/unlike, comments (with their replies) and **Send**, which puts the video's link into one of your
-  chats. Playback is streamed through the server; nothing of the feed is stored.
+  chats, and a **Fit / Fill** button next to them that switches between the whole video with black bars and a video
+  cropped to the screen (the choice is remembered). Playback is streamed through the server; nothing of the feed is
+  stored.
 - **Unsent** feed, global **Search**, **TikTok** (live view of the server's browser: tap = click, drag = scroll,
   pinch = zoom, keyboard, view-only switch, restart, log out), **Settings** (password, 2FA, recovery key, sessions,
   logging options, reconcile interval, TikTok connection, security log, wipe).

@@ -271,7 +271,7 @@ fun MainShell(graph: AppGraph, session: ServerSession, state: AppState, wa: TtSt
                         composable<TikTokRoute> { TikTokScreen(session.api, wa) }
                         composable<FeedRoute> {
                             val vm: FeedViewModel = viewModel(key = "feed:${session.id}") { FeedViewModel(session) }
-                            FeedScreen(vm, session, wa?.connected == true)
+                            FeedScreen(vm, session, wa?.connected == true, graph.prefs)
                         }
                         composable<AdminRoute> {
                             AdminScreen(AdminDeps(session.api, state.username, state.totpEnabled == true))
