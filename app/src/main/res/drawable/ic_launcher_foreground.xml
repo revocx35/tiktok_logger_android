@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A music note (TikTok's mark) drawn in three passes: cyan shadow, red shadow, white note on top. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- cyan offset -->
+    <group android:translateX="-1.6" android:translateY="1.6">
+        <path android:fillColor="#25F4EE" android:pathData="M62 26h9c1 8 6 13 14 14v10c-6 0-11-2-15-5v22c0 11-8 19-19 19s-19-8-19-19 8-19 19-19c1 0 2 0 3 0.2V58c-1-0.1-2-0.2-3-0.2-5 0-9 4-9 9s4 9 9 9 9-4 9-9V26z" />
+    </group>
+    <!-- red offset -->
+    <group android:translateX="1.6" android:translateY="-1.6">
+        <path android:fillColor="#FE2C55" android:pathData="M62 26h9c1 8 6 13 14 14v10c-6 0-11-2-15-5v22c0 11-8 19-19 19s-19-8-19-19 8-19 19-19c1 0 2 0 3 0.2V58c-1-0.1-2-0.2-3-0.2-5 0-9 4-9 9s4 9 9 9 9-4 9-9V26z" />
+    </group>
+    <!-- the note -->
+    <path android:fillColor="#FFFFFF" android:pathData="M62 26h9c1 8 6 13 14 14v10c-6 0-11-2-15-5v22c0 11-8 19-19 19s-19-8-19-19 8-19 19-19c1 0 2 0 3 0.2V58c-1-0.1-2-0.2-3-0.2-5 0-9 4-9 9s4 9 9 9 9-4 9-9V26z" />
+</vector>

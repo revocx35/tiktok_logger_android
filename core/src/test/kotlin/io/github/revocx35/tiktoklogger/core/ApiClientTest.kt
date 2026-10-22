@@ -1,0 +1,263 @@
+package io.github.revocx35.tiktoklogger.core
+
+import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import mockwebserver3.MockResponse
+import mockwebserver3.MockWebServer
+import okhttp3.OkHttpClient
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
+import org.junit.Before
+import org.junit.Test
+
+class ApiClientTest {
+    private lateinit var server: MockWebServer
+    private lateinit var api: ApiClient
+
+    @Before
+    fun setUp() {
+        server = MockWebServer()
+        server.start()
+        api = ApiClient(OkHttpClient(), parseServerUrl(server.url("/").toString())!!)
+    }
+
+    @After
+    fun tearDown() = server.close()
+
+    private fun json(body: String, code: Int = 200) =
+        MockResponse.Builder().code(code).addHeader("Content-Type", "application/json").body(body).build()
+
+    @Test
+    fun sendsOriginAndCsrfLikeTheBrowser() = runBlocking {
+        server.enqueue(json("""{"hasOwner":true,"authenticated":true,"onboardingComplete":true,"csrfToken":"tok","tt":{"state":"ready","mediaQueue":0,"since":1,"newField":1}}"""))
+        server.enqueue(json("""{"ok":true}"""))
+        val st = api.state()
+        assertEquals(TtState.Ready, st.tt?.state)
+        api.csrfToken = st.csrfToken
+        api.ttRestart()
+        val get = server.takeRequest()
+        assertEquals("GET", get.method)
+        assertEquals(api.origin, get.headers["Origin"])
+        assertNull(get.headers["X-CSRF-Token"])
+        val post = server.takeRequest()
+        assertEquals("POST", post.method)
+        assertEquals("tok", post.headers["X-CSRF-Token"])
+        assertEquals("http://${server.hostName}:${server.port}", post.headers["Origin"])
+        assertTrue(post.headers["Content-Type"]!!.startsWith("application/json"))
+        assertEquals("{}", post.body?.utf8())
+    }
+
+    @Test
+    fun sendsMessagesAndUploadsRawFiles() = runBlocking {
+        api.csrfToken = "tok"
+        server.enqueue(json("""{"id":"true_1@c.us_X"}"""))
+        server.enqueue(json("""{"uploadId":"0123456789abcdef0123456789abcdef","size":3}"""))
+        server.enqueue(json("""{"id":null}"""))
+        server.enqueue(json("""{"ok":true}"""))
+        assertEquals("true_1@c.us_X", api.sendText("1@c.us", "Merhaba\nikinci", "false_1@c.us_Q").id)
+        val text = server.takeRequest()
+        assertEquals("/api/chats/1%40c.us/send", text.target)
+        assertEquals("tok", text.headers["X-CSRF-Token"])
+        assertEquals("""{"text":"Merhaba\nikinci","quotedId":"false_1@c.us_Q"}""", text.body?.utf8())
+
+        val up = api.upload(byteArrayOf(1, 2, 3).toRequestBody("image/jpeg".toMediaType()), "tatil fotoğrafı.jpg")
+        assertEquals("0123456789abcdef0123456789abcdef", up.uploadId)
+        val raw = server.takeRequest()
+        assertEquals("/api/uploads", raw.target)
+        assertEquals("tok", raw.headers["X-CSRF-Token"])
+        assertEquals("image/jpeg", raw.headers["X-File-Type"])
+        assertEquals("tatil%20fotoğrafı.jpg".replace("ğ", "%C4%9F").replace("ı", "%C4%B1"), raw.headers["X-Filename"])
+        assertEquals(3, raw.body?.size?.toInt())
+        assertEquals(api.origin, raw.headers["Origin"])
+
+        api.sendMedia("1@c.us", up.uploadId, SendMediaKind.Voice, null)
+        assertEquals("""{"uploadId":"0123456789abcdef0123456789abcdef","kind":"voice"}""", server.takeRequest().body?.utf8())
+        api.react("m 1", "")
+        val react = server.takeRequest()
+        assertEquals("/api/messages/m%201/react", react.target)
+        assertEquals("""{"emoji":""}""", react.body?.utf8())
+    }
+
+    @Test
+    fun signsInWithATemporaryPasswordAndClaimsIt() = runBlocking {
+        server.enqueue(json("""{"ok":false,"mustChangePassword":true,"needRecoveryKey":true}"""))
+        server.enqueue(json("""{"recoveryKey":"AAAA-BBBB-CCCC"}"""))
+        val login = api.login("friend", "Temp-Password-Issued-By-Admin", null)
+        assertTrue(login.mustChangePassword == true && login.needRecoveryKey == true)
+        assertEquals("friend", kotlinx.serialization.json.Json.parseToJsonElement(server.takeRequest().body!!.utf8()).jsonObject["username"]!!.jsonPrimitive.content)
+        val res = api.claim("friend", "Temp-Password-Issued-By-Admin", "my-own-passphrase-1", "AAAA-BBBB-CCCC")
+        assertEquals("AAAA-BBBB-CCCC", res.recoveryKey)
+        val claim = server.takeRequest()
+        assertEquals("/api/auth/claim", claim.target)
+        val sent = kotlinx.serialization.json.Json.parseToJsonElement(claim.body!!.utf8()).jsonObject
+        assertEquals("my-own-passphrase-1", sent["newPassword"]!!.jsonPrimitive.content)
+        assertEquals("AAAA-BBBB-CCCC", sent["recoveryKey"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun managesUsersAndPortsLikeTheWebAdminPage() = runBlocking {
+        api.csrfToken = "tok"
+        server.enqueue(json("""{"currentUserId":1,"users":[{"id":1,"username":"admin","role":"admin","port":null,"status":"active"},{"id":2,"username":"friend","role":"user","port":8101,"status":"pending","tt":"login"}],"defaultPort":8080,"defaultOrigin":null,"ports":[{"port":8101,"origin":null,"usernames":["friend"]}],"availablePorts":[8101,8102],"maxUsers":10}"""))
+        server.enqueue(json("""{"user":{"id":3,"username":"other","role":"user","port":null,"status":"pending"},"temporaryPassword":"Temporary-Passphrase-For-The-Test"}"""))
+        server.enqueue(json("""{"id":2,"username":"friend","role":"user","port":8102,"status":"active"}"""))
+        val o = api.adminOverview()
+        assertEquals(2, o.users.size)
+        assertEquals(TtState.Login, o.users[1].tt)
+        assertEquals(8101, o.users[1].port)
+        assertEquals(listOf(8101, 8102), o.availablePorts)
+        assertEquals("GET", server.takeRequest().method)
+
+        val created = api.adminCreateUser("other", null, null)
+        assertEquals("Temporary-Passphrase-For-The-Test", created.temporaryPassword)
+        val post = server.takeRequest()
+        assertEquals("/api/admin/users", post.target)
+        // The server needs an explicit null for "default port"; ApiJson would drop it.
+        assertEquals("""{"username":"other","port":null}""", post.body?.utf8())
+        assertEquals("tok", post.headers["X-CSRF-Token"])
+
+        api.adminSetUserPort(2, 8102)
+        val patch = server.takeRequest()
+        assertEquals("PATCH", patch.method)
+        assertEquals("/api/admin/users/2", patch.target)
+        assertEquals("""{"port":8102}""", patch.body?.utf8())
+    }
+
+    @Test
+    fun mapsUploadErrors() = runBlocking {
+        server.enqueue(json("", 413))
+        server.enqueue(json("""{"error":{"code":"conflict","message":"Too many files waiting to be sent."}}""", 409))
+        for (expected in listOf("too_large" to "The file is too large (64 MB at most).", "conflict" to "Too many files waiting to be sent.")) {
+            try {
+                api.upload(byteArrayOf(1).toRequestBody(null), null)
+                fail("expected an error")
+            } catch (e: ApiException) {
+                assertEquals(expected, e.code to e.message)
+            }
+        }
+    }
+
+    @Test
+    fun readsTheMediaFeed() = runBlocking {
+        server.enqueue(json("""{"items":[],"cursor":"41","more":false}"""))
+        server.enqueue(json("""{"items":[{"chat":{"id":"1@c.us","name":"A","kind":"user"},"message":{"id":"m1","chatId":"1@c.us","type":"image","ts":5,"media":{"status":"downloaded","url":"/api/media/42","mime":"image/jpeg"}}}],"cursor":"42","more":true}"""))
+        assertEquals("41", api.mediaFeed(null).cursor)
+        assertEquals("/api/media-feed?limit=50", server.takeRequest().target)
+        val page = api.mediaFeed("41", 10)
+        assertEquals("/api/media-feed?limit=10&after=41", server.takeRequest().target)
+        assertEquals("/api/media/42", page.items.single().message.media?.url)
+        assertEquals(true, page.more)
+    }
+
+    @Test
+    fun omitsEmptyOptionalFieldsAndEncodesPaths() = runBlocking {
+        server.enqueue(json("""{"ok":false,"needTotp":true}"""))
+        server.enqueue(json("""{"messages":[{"id":"m1","chatId":"1@c.us","type":"brand_new_type","media":{"status":"weird"}}],"nextBefore":null}"""))
+        assertEquals(true, api.login("owner", "pw", null).needTotp)
+        assertEquals("""{"username":"owner","password":"pw"}""", server.takeRequest().body?.utf8())
+        val page = api.messages("123@g.us", "5_6")
+        assertEquals(MessageType.Unknown, page.messages[0].type)
+        assertEquals(MediaStatus.None, page.messages[0].media?.status)
+        assertEquals("/api/chats/123%40g.us/messages?limit=60&before=5_6", server.takeRequest().target)
+    }
+
+    @Test
+    fun mapsErrorsAndUnauthorized() = runBlocking {
+        var unauthorized = 0
+        api.onUnauthorized = { unauthorized++ }
+        server.enqueue(json("""{"error":{"code":"rate_limited","message":"Too many attempts.","retryAfter":30}}""", 429))
+        server.enqueue(json("""{"error":{"code":"unauthorized","message":"Please log in."}}""", 401))
+        server.enqueue(MockResponse.Builder().code(301).addHeader("Location", "https://example.test/").build())
+        server.enqueue(MockResponse.Builder().code(200).body("<html>not json</html>").build())
+        try { api.chats(); fail() } catch (e: ApiException) {
+            assertEquals("rate_limited", e.code)
+            assertEquals("Too many attempts. (retry in 30s)", e.userMessage)
+        }
+        try { api.chats(); fail() } catch (e: ApiException) { assertEquals(401, e.status) }
+        assertEquals(1, unauthorized)
+        try { api.state(); fail() } catch (e: ApiException) {
+            assertEquals(ApiException.REDIRECT, e.code)
+            assertTrue(e.message.contains("https://example.test"))
+        }
+        try { api.state(); fail() } catch (e: ApiException) { assertEquals(ApiException.NOT_INSTA_LOGGER, e.code) }
+    }
+
+    @Test
+    fun networkErrorsAreFriendly() = runBlocking {
+        val dead = ApiClient(OkHttpClient(), "http://127.0.0.1:1/".toHttpUrl())
+        try { dead.state(); fail() } catch (e: ApiException) { assertEquals(ApiException.NETWORK, e.code) }
+    }
+
+    @Test
+    fun serverUrlParsing() {
+        assertEquals("https://wa.example.com/", parseServerUrl("wa.example.com")?.toString())
+        assertEquals("http://192.168.1.50/", parseServerUrl(" http://192.168.1.50/login?x=1 ")?.toString())
+        assertEquals("https://h:8443/", parseServerUrl("https://h:8443")?.toString())
+        assertNull(parseServerUrl("ftp://x"))
+        assertNull(parseServerUrl("https://user:pw@x"))
+        assertNull(parseServerUrl("a b"))
+        assertEquals("https://h:8443", parseServerUrl("https://h:8443")!!.originString())
+        assertEquals("http://192.168.1.50", parseServerUrl("http://192.168.1.50")!!.originString())
+        assertTrue(isLocalHost("192.168.1.50"))
+        assertTrue(isLocalHost("10.1.2.3"))
+        assertTrue(isLocalHost("nas.local"))
+        assertTrue(!isLocalHost("172.32.0.1"))
+        assertTrue(!isLocalHost("wa.example.com"))
+        assertTrue(!isLocalHost("8.8.8.8"))
+    }
+
+    @Test
+    fun parsesServerEvents() {
+        val ev = ApiJson.decodeFromString(ServerEvent.serializer(), """{"type":"message_update","chatId":"a@c.us","messageId":"m","reason":"deleted"}""")
+        assertEquals(ServerEvent.MessageUpdate("a@c.us", "m", "deleted"), ev)
+        assertEquals(ServerEvent.SessionRevoked, ApiJson.decodeFromString(ServerEvent.serializer(), """{"type":"session_revoked"}"""))
+        val sync = ApiJson.decodeFromString(ServerEvent.serializer(), """{"type":"sync_progress","sync":null}""")
+        assertEquals(ServerEvent.SyncProgressChanged(null), sync)
+    }
+
+    @Test
+    fun feedEndpoints() = runBlocking {
+        api.csrfToken = "tok"
+        server.enqueue(json("""{"item":{"id":"7412345678901234567","url":"https://www.tiktok.com/@ali/video/7412345678901234567","author":{"username":"ali","name":"Ali"},"caption":"first video","music":"original sound - ali","stats":{"likes":1200,"comments":2,"shares":34,"plays":34000},"liked":false,"video":{"src":"/api/feed/media/AAAA","poster":"/api/feed/media/BBBB","muted":false,"playing":true}}}"""))
+        val one = api.feed().item!!
+        assertEquals("ali", one.author.username)
+        assertEquals(1200L, one.stats.likes)
+        assertEquals(34000L, one.stats.plays)
+        assertEquals("/api/feed/media/AAAA", one.video?.src)
+        assertEquals("/api/feed", server.takeRequest().target)
+
+        server.enqueue(json("""{"item":{"id":"7412345678901234568","author":{"username":"ayse"},"liked":true}}"""))
+        val next = api.feedStep("next").item!!
+        assertEquals("7412345678901234568", next.id)
+        assertEquals(true, next.liked)
+        val step = server.takeRequest()
+        assertEquals("/api/feed/step", step.target)
+        assertEquals("""{"dir":"next"}""", step.body?.utf8())
+
+        server.enqueue(json("""{"liked":true}"""))
+        assertTrue(api.feedLike("7412345678901234567", true).liked)
+        val like = server.takeRequest()
+        assertEquals("/api/feed/7412345678901234567/like", like.target)
+        assertEquals("""{"like":true}""", like.body?.utf8())
+
+        server.enqueue(json("""{"comments":[{"id":"c1","author":{"username":"ayse"},"text":"nice","likes":12,"replies":[]},{"id":"c2","author":{"username":"mehmet"},"text":"where?","replies":[{"id":"c2r1","author":{"username":"ali"},"text":"istanbul"}]}]}"""))
+        val page = api.feedComments("7412345678901234567")
+        assertEquals(2, page.comments.size)
+        assertEquals("istanbul", page.comments[1].replies[0].text)
+        assertEquals("/api/feed/7412345678901234567/comments", server.takeRequest().target)
+
+        server.enqueue(json("""{"comments":[{"id":"c9","author":{"username":"me"},"text":"hello from the phone"}]}"""))
+        val after = api.feedComment("7412345678901234567", "hello from the phone")
+        assertEquals("hello from the phone", after.comments[0].text)
+        val post = server.takeRequest()
+        assertEquals("/api/feed/7412345678901234567/comment", post.target)
+        assertEquals("""{"text":"hello from the phone"}""", post.body?.utf8())
+    }
+}
