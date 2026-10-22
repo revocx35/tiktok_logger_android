@@ -85,8 +85,14 @@ import kotlinx.coroutines.delay
  */
 @Composable
 fun BrandMark(size: Dp = 40.dp, iconSize: Dp = 26.dp, corner: Dp = 12.dp, modifier: Modifier = Modifier) {
+    // The web UI's brand gradient: cyan → blue → pink → red, 45° (see `--brand` in web/src/styles.css).
     val gradient = androidx.compose.ui.graphics.Brush.linearGradient(
-        colors = listOf(Color(0xFF25F4EE), Color(0xFFFE2C55)),
+        colorStops = arrayOf(
+            0f to Color(0xFF25F4EE),
+            0.32f to Color(0xFF1E9BD7),
+            0.68f to Color(0xFFE5399F),
+            1f to Color(0xFFFE2C55),
+        ),
         start = androidx.compose.ui.geometry.Offset.Zero,
         end = androidx.compose.ui.geometry.Offset(220f, 220f),
     )
