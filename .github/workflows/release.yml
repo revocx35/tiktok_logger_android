@@ -43,8 +43,15 @@ jobs:
           name: tiktok_logger-android-release
           path: app/build/outputs/apk/release/*.apk
           retention-days: 30
-      - name: Attach to the GitHub release
+      - name: Create the release or attach to it
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
-        run: gh release upload "$TAG" app/build/outputs/apk/release/*.apk --clobber
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" app/build/outputs/apk/release/*.apk --clobber
+          else
+            gh release create "$TAG" app/build/outputs/apk/release/*.apk --verify-tag \
+              --title "tiktok_logger for Android ${TAG#v}" \
+              --notes "Built from \`${TAG}\`. Signed release APK attached; see README.md for what is in it."
+          fi

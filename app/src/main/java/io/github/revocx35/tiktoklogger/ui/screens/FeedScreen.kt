@@ -36,6 +36,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -232,10 +233,13 @@ private fun compact(n: Long?): String = when {
 @Composable
 fun FeedScreen(vm: FeedViewModel, session: ServerSession, connected: Boolean) {
     if (!connected) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Box(Modifier.fillMaxSize().padding(28.dp), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                MutedText("TikTok is not connected", style = WaType.chatName)
-                MutedText("The feed plays through the server's TikTok login. Log in on the TikTok screen first.")
+                MutedText("TikTok is not connected", style = WaType.chatName, textAlign = TextAlign.Center)
+                MutedText(
+                    "The feed plays through the server's TikTok login. Log in on the TikTok screen first.",
+                    textAlign = TextAlign.Center,
+                )
             }
         }
         return

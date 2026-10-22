@@ -8,6 +8,12 @@ browser, and the session kept in the Android Keystore.
 **The phone never talks to TikTok.** Chats, sending, media and the For You feed all go through your server, so TikTok
 only ever sees the server's browser and IP address.
 
+| Chats | Feed | TikTok screen | Settings |
+|---|---|---|---|
+| ![](docs/screenshots/phone_chats.png) | ![](docs/screenshots/phone_feed.png) | ![](docs/screenshots/phone_tiktok.png) | ![](docs/screenshots/phone_settings.png) |
+
+*(Screens from the emulator against a test server: no TikTok account is connected there, so the lists are empty.)*
+
 ## Features
 
 Through the same server API as the web UI (`shared/api.d.ts` of tiktok_logger):

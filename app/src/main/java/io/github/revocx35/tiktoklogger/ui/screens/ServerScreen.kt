@@ -170,12 +170,12 @@ fun ServerScreen(graph: AppGraph, onConnected: (HttpUrl, Boolean) -> Unit) {
             address,
             { address = it.trim(); error = null },
             "Server address",
-            placeholder = "https://wa.example.com",
+            placeholder = "https://tiktok.example.com",
             keyboardType = KeyboardType.Uri,
             imeAction = ImeAction.Go,
             onIme = { if (url != null && (!publicHttp || allowHttp)) probe(url) },
         )
-        if (address.isNotEmpty() && url == null) ErrorNote("Enter an address like wa.example.com, https://wa.example.com or http://192.168.1.50.")
+        if (address.isNotEmpty() && url == null) ErrorNote("Enter an address like wa.example.com, https://tiktok.example.com or http://192.168.1.50.")
         if (insecure && !publicHttp) {
             Note("This connection is not encrypted (HTTP). That is only OK inside your own network — use your HTTPS address anywhere else.", WaIcons.warning)
         }
