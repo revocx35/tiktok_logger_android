@@ -46,6 +46,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.revocx35.tiktoklogger.core.userMessage
+import io.github.revocx35.tiktoklogger.ui.components.BrandMark
 import io.github.revocx35.tiktoklogger.ui.components.BtnStyle
 import io.github.revocx35.tiktoklogger.ui.components.CheckRow
 import io.github.revocx35.tiktoklogger.ui.components.ErrorNote
@@ -83,9 +84,7 @@ fun AuthShell(title: String, subtitle: String? = null, wide: Boolean = false, co
                     .padding(if (compact) 22.dp else 32.dp),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 24.dp)) {
-                    Box(Modifier.size(40.dp).clip(CircleShape).background(c.accent), contentAlignment = Alignment.Center) {
-                        WaIcon(WaIcons.shield, 26.dp, Color.White)
-                    }
+                    BrandMark()
                     Text("tiktok_logger", style = WaType.base.copy(fontWeight = FontWeight.SemiBold), color = if (c.isDark) c.ok else c.accent2)
                 }
                 Text(title, style = WaType.authTitle, color = c.text, modifier = Modifier.padding(bottom = 8.dp))

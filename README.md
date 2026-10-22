@@ -8,6 +8,8 @@ browser, and the session kept in the Android Keystore.
 **The phone never talks to TikTok.** Chats, sending, media and the For You feed all go through your server, so TikTok
 only ever sees the server's browser and IP address.
 
+The icon and the in-app mark are the server's own logo (the cyan→red tile with a white shield used by the web UI).
+
 | Chats | Feed | TikTok screen | Settings |
 |---|---|---|---|
 | ![](docs/screenshots/phone_chats.png) | ![](docs/screenshots/phone_feed.png) | ![](docs/screenshots/phone_tiktok.png) | ![](docs/screenshots/phone_settings.png) |

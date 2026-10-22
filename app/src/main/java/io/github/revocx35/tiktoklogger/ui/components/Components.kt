@@ -79,6 +79,28 @@ import kotlinx.coroutines.delay
 
 /* Building blocks mirroring the web UI's CSS classes (.btn, .pill, .badge, .chip, .search-box, …). */
 
+/**
+ * The product's mark, identical to the web UI's brand logo (`web/src/styles.css` .brand-logo): a rounded tile with the
+ * 45° cyan→red gradient and a white shield.
+ */
+@Composable
+fun BrandMark(size: Dp = 40.dp, iconSize: Dp = 26.dp, corner: Dp = 12.dp, modifier: Modifier = Modifier) {
+    val gradient = androidx.compose.ui.graphics.Brush.linearGradient(
+        colors = listOf(Color(0xFF25F4EE), Color(0xFFFE2C55)),
+        start = androidx.compose.ui.geometry.Offset.Zero,
+        end = androidx.compose.ui.geometry.Offset(220f, 220f),
+    )
+    Box(
+        modifier
+            .size(size)
+            .clip(androidx.compose.foundation.shape.RoundedCornerShape(corner))
+            .background(gradient),
+        contentAlignment = androidx.compose.ui.Alignment.Center,
+    ) {
+        WaIcon(WaIcons.shield, iconSize, Color.White)
+    }
+}
+
 @Composable
 fun Spinner(size: Dp = 20.dp, modifier: Modifier = Modifier) {
     CircularProgressIndicator(
