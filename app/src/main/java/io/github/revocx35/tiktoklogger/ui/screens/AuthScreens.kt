@@ -85,7 +85,7 @@ fun AuthShell(title: String, subtitle: String? = null, wide: Boolean = false, co
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 24.dp)) {
                     BrandMark()
-                    Text("tiktok_logger", style = WaType.base.copy(fontWeight = FontWeight.SemiBold), color = if (c.isDark) c.ok else c.accent2)
+                    Text("tiktok_logger", style = WaType.base.copy(fontWeight = FontWeight.SemiBold), color = c.text)
                 }
                 Text(title, style = WaType.authTitle, color = c.text, modifier = Modifier.padding(bottom = 8.dp))
                 if (subtitle != null) MutedText(subtitle)
