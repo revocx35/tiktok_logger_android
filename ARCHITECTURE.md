@@ -69,5 +69,21 @@ token encrypted in the Keystore, and sends `Authorization: Bearer <access token>
 - `core`: JSON/API contract (`ApiClientTest`, including the feed), authentik flow (`AuthentikTest`), RFB/DES
   (`RfbTest`), text/link handling (`TtTextTest`), formatting, and a live-server test that is skipped unless a server
   address is provided.
-- `app`: view-model selection logic, auto-save policy, and screenshot render tests (Roborazzi) for the main screens.
+- `app`: view-model selection logic, auto-save policy, the feed's rail and scaling
+  (`FeedResizeTest`: the pref, the `RESIZE_MODE`/`ContentScale` mapping on a real `PlayerView`, clicking the resize
+  button both ways), and screenshot render tests (Roborazzi) for the main screens.
 - CI runs `:core:test :app:testDebugUnitTest :app:lintDebug :app:assembleDebug`.
+
+## Checking the feed without a TikTok account
+
+The Feed only renders when the server reports `tt.state = ready`, and the real server needs a logged-in browser tab,
+so a local check uses a throwaway API that answers `/api/state` with `tt.state=ready` plus a canned `/api/feed` item.
+Point the app at it with `wal_prefs.xml` (`server_url=http://10.0.2.2:<port>`, `allow_http=true`,
+`secure_screen=false`) written through `run-as`, grant `android.permission.ACCESS_LOCAL_NETWORK`, and tap through with
+`uiautomator dump` + `input tap` (parse the XML per node: `content-desc` carries the button names, `bounds` the centre).
+
+Two capture limits: `screencap` is black while FLAG_SECURE is on, and it is **also** black for video inside a
+`PlayerView` (a SurfaceView), even with the flag off — `screenrecord` in this emulator is no better. To see the
+scaling, give the harness item a `poster` image instead of a `video.src`: the poster uses the same flag
+(`feedContentScale`) and does show up in a screencap.
+
