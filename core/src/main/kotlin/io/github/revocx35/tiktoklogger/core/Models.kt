@@ -456,3 +456,58 @@ data class AdminAuditEntry(
     val ip: String? = null,
     val detail: String? = null,
 )
+
+/* ----------------------------------------------------------------- stories */
+
+/** One account whose stories were logged (the web UI's Stories page shows these in gradient rings). */
+@Serializable
+data class StoryAuthor(
+    val id: String,
+    val username: String? = null,
+    val name: String? = null,
+    val avatarUrl: String? = null,
+    val count: Int = 0,
+    val latest: Long? = null,
+)
+
+/**
+ * One logged story. [url] is a server media url (`/api/media/<id>`) and is only present once the media is stored;
+ * `?download=1` on it answers an attachment named `story_@user_<date>.<ext>`.
+ */
+@Serializable
+data class StoryItem(
+    val id: String,
+    val userId: String = "",
+    val username: String? = null,
+    val name: String? = null,
+    val type: String = "video",
+    val takenAt: Long = 0,
+    val expiresAt: Long? = null,
+    val status: String = "pending",
+    val url: String? = null,
+    /** The media row behind [url]: what a saved file and the ZIP endpoint are keyed by. */
+    val mediaId: Long? = null,
+    val mime: String? = null,
+    val likes: Long? = null,
+    val plays: Long? = null,
+) {
+    val isVideo: Boolean get() = type == "video"
+    /** Downloaded and playable; a story is stored a few seconds after it is first seen. */
+    val ready: Boolean get() = url != null && status == "downloaded"
+}
+
+@Serializable
+data class StoryPage(val items: List<StoryItem> = emptyList(), val nextBefore: Long? = null)
+
+/** `GET /api/stories/status`: the schedule and what is stored. */
+@Serializable
+data class StoryStatus(
+    val logging: Boolean = false,
+    val lastCheckAt: Long? = null,
+    val nextCheckAt: Long? = null,
+    val lastResult: String? = null,
+    val authors: Int = 0,
+    val items: Int = 0,
+    val pending: Int = 0,
+    val downloaded: Int = 0,
+)

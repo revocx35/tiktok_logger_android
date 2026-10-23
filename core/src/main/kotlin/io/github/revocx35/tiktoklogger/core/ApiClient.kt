@@ -398,6 +398,19 @@ class ApiClient(baseClient: OkHttpClient, val baseUrl: HttpUrl) {
     suspend fun feedComment(id: String, text: String): FeedCommentPage = send("POST", "/api/feed/${enc(id)}/comment", FeedCommentRequest(text))
     suspend fun feedCloseComments(): OkResponse = post("/api/feed/comments/close")
 
+    /* ------------------------------------------------------------------ stories */
+
+    suspend fun storiesStatus(): StoryStatus = get("/api/stories/status")
+
+    /** Runs a capture pass now (the web UI's "Check now"); the scheduled pass runs on the server. */
+    suspend fun storiesCheck(): StoryStatus = post("/api/stories/check")
+
+    suspend fun storiesAuthors(): List<StoryAuthor> =
+        request("GET", "/api/stories/authors", null, null, ListSerializer(StoryAuthor.serializer()))
+
+    suspend fun stories(user: String? = null, before: Long? = null, limit: Int = 60): StoryPage =
+        get("/api/stories?limit=$limit" + (user?.let { "&user=${enc(it)}" } ?: "") + (before?.let { "&before=$it" } ?: ""))
+
     suspend fun settings(): Settings = get("/api/settings")
     suspend fun updateSettings(patch: SettingsPatch): Settings = send("PUT", "/api/settings", patch)
     suspend fun audit(before: Long? = null): List<AuditEntry> =

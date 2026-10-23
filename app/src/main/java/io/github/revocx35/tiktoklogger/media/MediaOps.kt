@@ -13,6 +13,7 @@ import androidx.core.content.FileProvider
 import io.github.revocx35.tiktoklogger.core.ApiClient
 import io.github.revocx35.tiktoklogger.core.Message
 import io.github.revocx35.tiktoklogger.core.MessageType
+import io.github.revocx35.tiktoklogger.core.StoryItem
 import io.github.revocx35.tiktoklogger.core.await
 import io.github.revocx35.tiktoklogger.core.mapTransportError
 import io.github.revocx35.tiktoklogger.data.ServerSession
@@ -164,6 +165,87 @@ object MediaOps {
         val ok = messages.size - failed
         val text = if (failed == 0) "Saved $ok to the gallery (tiktok_logger album)." else "Saved $ok of ${messages.size}; $failed could not be saved."
         Toast.makeText(context, text, Toast.LENGTH_LONG).show()
+    }
+
+    /**
+     * A story's file name, the same shape the server puts in `Content-Disposition` when the media route is asked for
+     * `?download=1`: `story_@user_2026-10-23_05-37.jpg`. A story has no name of its own, and "IMG_20261023" tells the
+     * owner nothing a week later.
+     */
+    fun storyFileName(story: StoryItem, username: String?): String {
+        val ext = when {
+            story.mime?.startsWith("video/mp4") == true -> "mp4"
+            story.mime?.startsWith("video/webm") == true -> "webm"
+            story.mime?.startsWith("image/png") == true -> "png"
+            story.mime?.startsWith("image/webp") == true -> "webp"
+            story.isVideo -> "mp4"
+            else -> "jpg"
+        }
+        val who = (username ?: story.username ?: story.userId)
+            .removePrefix("@")
+            .replace(Regex("[^A-Za-z0-9._-]"), "")
+            .ifBlank { "unknown" }
+        val at = java.time.Instant.ofEpochMilli(story.takenAt).atZone(java.time.ZoneId.systemDefault())
+        val stamp = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm").format(at)
+        return "story_@${who}_$stamp.$ext"
+    }
+
+    /**
+     * Saves one story into the shared gallery (Pictures/tiktok_logger or Movies/tiktok_logger), the same place and way as
+     * a chat photo. The bytes come through the server (`/api/media/<id>?download=1`), so the phone still never talks to
+     * TikTok. Never throws: the result is a toast.
+     */
+    suspend fun saveStoryToGallery(context: Context, api: ApiClient, story: StoryItem, username: String? = null) {
+        if (Build.VERSION.SDK_INT < 29) {
+            Toast.makeText(context, "Saving to the gallery needs Android 10 or newer.", Toast.LENGTH_LONG).show()
+            return
+        }
+        val relative = story.url ?: run {
+            Toast.makeText(context, "This story is still downloading — try again in a moment.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        try {
+            withContext(Dispatchers.IO) {
+                val video = story.isVideo
+                val collection = if (video) {
+                    MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+                } else {
+                    MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+                }
+                val mime = story.mime?.substringBefore(';')?.trim()?.takeIf { it.startsWith(if (video) "video/" else "image/") }
+                    ?: if (video) "video/mp4" else "image/jpeg"
+                val values = ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, storyFileName(story, username))
+                    put(MediaStore.MediaColumns.MIME_TYPE, mime)
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, (if (video) Environment.DIRECTORY_MOVIES else Environment.DIRECTORY_PICTURES) + "/tiktok_logger")
+                    put(MediaStore.MediaColumns.DATE_TAKEN, story.takenAt)
+                    put(MediaStore.MediaColumns.IS_PENDING, 1)
+                }
+                val resolver = context.contentResolver
+                val uri = resolver.insert(collection, values) ?: throw IOException("cannot create file")
+                try {
+                    val url = api.mediaUrl(relative) ?: throw IOException("no media")
+                    val res = api.http.newCall(Request.Builder().url("$url?download=1").build()).await()
+                    res.use {
+                        if (!it.isSuccessful) throw HttpStatusException(it.code)
+                        resolver.openOutputStream(uri, "w")?.use { out -> it.body.byteStream().use { input -> input.copyTo(out) } } ?: throw IOException("cannot write")
+                    }
+                    resolver.update(uri, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null)
+                } catch (e: Throwable) {
+                    runCatching { resolver.delete(uri, null, null) }
+                    throw e
+                }
+            }
+            Toast.makeText(context, "Saved to the gallery (tiktok_logger album).", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            Toast.makeText(context, "Could not save: ${e.userMessageForSave()}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun Exception.userMessageForSave(): String = when (this) {
+        is HttpStatusException -> "the server answered $code"
+        else -> message ?: "unknown error"
     }
 
     /** Deletes temporary copies from earlier "Open" actions. */

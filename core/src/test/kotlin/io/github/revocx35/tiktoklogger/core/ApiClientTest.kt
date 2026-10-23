@@ -223,6 +223,44 @@ class ApiClientTest {
     }
 
     @Test
+    fun storiesEndpoints() = runBlocking {
+        server.enqueue(json("""{"logging":true,"items":4,"authors":2,"pending":1,"downloaded":3,"lastCheckAt":1792733824780,"nextCheckAt":1792736824780,"lastResult":"2 author(s) with stories"}"""))
+        val status = api.storiesStatus()
+        assertEquals(true, status.logging)
+        assertEquals(4, status.items)
+        assertEquals(3, status.downloaded)
+        assertEquals(1792733824780L, status.lastCheckAt)
+        assertEquals("/api/stories/status", server.takeRequest().target)
+
+        server.enqueue(json("""[{"id":"7613506544320103454","username":"ege","name":"Ege","avatarUrl":"/api/media/455","count":3,"latest":1792733000000}]"""))
+        val authors = api.storiesAuthors()
+        assertEquals(1, authors.size)
+        assertEquals("ege", authors[0].username)
+        assertEquals(3, authors[0].count)
+        assertEquals("/api/stories/authors", server.takeRequest().target)
+
+        // A photo story (imageURL is an object with urlList on TikTok's side; the server hands us a media url) and a
+        // video story, plus the pending one that has no url yet.
+        server.enqueue(json("""{"items":[{"id":"7699530832234433799","userId":"7671417399245865985","username":"farkeder","type":"image","takenAt":1792686726000,"expiresAt":1792773126000,"status":"downloaded","url":"/api/media/467","mediaId":467,"mime":"image/jpeg","likes":1,"plays":2},{"id":"7699617904534277383","userId":"7414127628527698950","username":"yoruk1032","type":"video","takenAt":1792707001000,"status":"downloaded","url":"/api/media/466","mediaId":466},{"id":"7699732725112114439","type":"video","status":"pending"}],"nextBefore":1792686726000}"""))
+        val page = api.stories(user = "7671417399245865985", limit = 60)
+        assertEquals(3, page.items.size)
+        assertEquals("/api/stories?limit=60&user=7671417399245865985", server.takeRequest().target)
+        val photo = page.items[0]
+        assertEquals(false, photo.isVideo)
+        assertEquals(true, photo.ready)
+        assertEquals(467L, photo.mediaId)
+        assertEquals("/api/media/467", photo.url)
+        assertEquals(true, page.items[1].isVideo)
+        assertEquals(false, page.items[2].ready)
+        assertEquals(null, page.items[2].url)
+        assertEquals(1792686726000L, page.nextBefore)
+
+        server.enqueue(json("""{"logging":true,"items":5,"authors":2,"pending":0,"downloaded":5}"""))
+        assertEquals(5, api.storiesCheck().items)
+        assertEquals("POST", server.takeRequest().method)
+    }
+
+    @Test
     fun feedEndpoints() = runBlocking {
         api.csrfToken = "tok"
         server.enqueue(json("""{"item":{"id":"7412345678901234567","url":"https://www.tiktok.com/@ali/video/7412345678901234567","author":{"username":"ali","name":"Ali"},"caption":"first video","music":"original sound - ali","stats":{"likes":1200,"comments":2,"shares":34,"plays":34000},"liked":false,"video":{"src":"/api/feed/media/AAAA","poster":"/api/feed/media/BBBB","muted":false,"playing":true}}}"""))

@@ -43,6 +43,23 @@ TikTok's look, a video that is not 9:16 loses its sides) and **fit** (`RESIZE_MO
 bars). The poster uses the matching `ContentScale`, and the choice is stored in `Prefs.feedFitVideo` so it survives a
 restart. `feedResizeMode()`/`feedContentScale()` are the single mapping from the flag to the two surfaces.
 
+## Stories
+
+`StoriesScreen` + `StoriesViewModel` mirror the web UI's Stories page over `GET /api/stories/status`, `/api/stories/authors`
+and `/api/stories?user=&before=&limit=` (plus `POST /api/stories/check` for "Check now"). The capture itself is the
+server's (`tt/stories.ts`); the app only reads what was stored and can save a story.
+
+- a row of authors (`Avatar` + a count badge, the row the web shows in gradient rings), a `LazyVerticalGrid` of tiles and a
+  full-screen `HorizontalPager` viewer: videos play through one ExoPlayer (silent, `REPEAT_MODE_OFF`) and move on at the
+  end, photos hold five seconds — the web's behaviour;
+- a **video story has no stored cover**, so its tile is a dark square with a play badge instead of a frame (the browser
+  shows a paused `<video>`; MediaMetadataRetriever cannot authenticate against `/api/media` because it has its own HTTP
+  stack and no session cookie, and downloading every video just for a thumbnail is not worth it);
+- **download** = `MediaOps.saveStoryToGallery` → MediaStore (`Pictures/` or `Movies/tiktok_logger`), the bytes taken from
+  the server's `/api/media/<id>?download=1`, the name built by `MediaOps.storyFileName` exactly like the server's
+  `Content-Disposition` (`story_@user_2026-10-23_05-37.jpg`). Android 10+; a story whose media is still downloading says so
+  instead of saving an empty file.
+
 ## Chats and messages
 
 `ChatScreens`/`ChatViewModel` page through `GET /api/messages` (`before`/`after`/`around`), render `MessageType`s

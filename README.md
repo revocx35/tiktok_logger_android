@@ -35,6 +35,10 @@ Through the same server API as the web UI (`shared/api.d.ts` of tiktok_logger):
   chats, and a **Fit / Fill** button next to them that switches between the whole video with black bars and a video
   cropped to the screen (the choice is remembered). Playback is streamed through the server; nothing of the feed is
   stored.
+- **Stories:** the stories the server logged for the accounts you follow — a row of accounts with their story counts, a
+  grid of photos and videos, a full-screen viewer (swipe between them, videos play once, photos hold five seconds), and a
+  **download** button on each story that saves it to the phone's gallery as `story_@user_<date>.<ext>`. "Check now" runs a
+  capture pass on the server; nothing is marked as seen.
 - **Unsent** feed, global **Search**, **TikTok** (live view of the server's browser: tap = click, drag = scroll,
   pinch = zoom, keyboard, view-only switch, restart, log out), **Settings** (password, 2FA, recovery key, sessions,
   logging options, reconcile interval, TikTok connection, security log, wipe).

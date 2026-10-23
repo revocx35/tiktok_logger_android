@@ -77,6 +77,8 @@ import io.github.revocx35.tiktoklogger.ui.screens.AdminScreen
 import io.github.revocx35.tiktoklogger.ui.screens.ChatListPane
 import io.github.revocx35.tiktoklogger.ui.screens.ChatListViewModel
 import io.github.revocx35.tiktoklogger.ui.screens.ChatPane
+import io.github.revocx35.tiktoklogger.ui.screens.StoriesScreen
+import io.github.revocx35.tiktoklogger.ui.screens.StoriesViewModel
 import io.github.revocx35.tiktoklogger.ui.screens.ChatViewModel
 import io.github.revocx35.tiktoklogger.ui.screens.DeletedScreen
 import io.github.revocx35.tiktoklogger.ui.screens.DeletedViewModel
@@ -100,12 +102,13 @@ import kotlinx.serialization.Serializable
 @Serializable data class SearchRoute(val q: String = "")
 @Serializable object TikTokRoute
 @Serializable object FeedRoute
+@Serializable object StoriesRoute
 @Serializable object SettingsRoute
 @Serializable object AdminRoute
 
 /** [adminOnly] tabs exist only for the admin (the first account). */
 enum class Tab(val label: String, val icon: ImageVector, val adminOnly: Boolean = false) {
-    Chats("Chats", WaIcons.chats), Feed("Feed", WaIcons.reels), Deleted("Unsent", WaIcons.deleted), Search("Search", WaIcons.search), TikTok("TikTok", WaIcons.monitor), Settings("Settings", WaIcons.settings), Admin("Users", WaIcons.group, adminOnly = true)
+    Chats("Chats", WaIcons.chats), Feed("Feed", WaIcons.reels), Stories("Stories", WaIcons.stories), Deleted("Unsent", WaIcons.deleted), Search("Search", WaIcons.search), TikTok("TikTok", WaIcons.monitor), Settings("Settings", WaIcons.settings), Admin("Users", WaIcons.group, adminOnly = true)
 }
 
 private fun tabRoute(t: Tab): Any = when (t) {
@@ -113,6 +116,7 @@ private fun tabRoute(t: Tab): Any = when (t) {
     Tab.Deleted -> DeletedRoute
     Tab.Search -> SearchRoute()
     Tab.Feed -> FeedRoute
+    Tab.Stories -> StoriesRoute
     Tab.TikTok -> TikTokRoute
     Tab.Settings -> SettingsRoute
     Tab.Admin -> AdminRoute
@@ -190,6 +194,7 @@ fun MainShell(graph: AppGraph, session: ServerSession, state: AppState, wa: TtSt
         dest.hasRoute<DeletedRoute>() -> Tab.Deleted
         dest.hasRoute<SearchRoute>() -> Tab.Search
         dest.hasRoute<FeedRoute>() -> Tab.Feed
+        dest.hasRoute<StoriesRoute>() -> Tab.Stories
         dest.hasRoute<TikTokRoute>() -> Tab.TikTok
         dest.hasRoute<SettingsRoute>() -> Tab.Settings
         dest.hasRoute<AdminRoute>() -> Tab.Admin
@@ -272,6 +277,10 @@ fun MainShell(graph: AppGraph, session: ServerSession, state: AppState, wa: TtSt
                         composable<FeedRoute> {
                             val vm: FeedViewModel = viewModel(key = "feed:${session.id}") { FeedViewModel(session) }
                             FeedScreen(vm, session, wa?.connected == true, graph.prefs)
+                        }
+                        composable<StoriesRoute> {
+                            val vm: StoriesViewModel = viewModel(key = "stories:${session.id}") { StoriesViewModel(session) }
+                            StoriesScreen(vm, session)
                         }
                         composable<AdminRoute> {
                             AdminScreen(AdminDeps(session.api, state.username, state.totpEnabled == true))
