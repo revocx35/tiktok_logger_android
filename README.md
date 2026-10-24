@@ -39,11 +39,37 @@ Through the same server API as the web UI (`shared/api.d.ts` of tiktok_logger):
   grid of photos and videos, a full-screen viewer (swipe between them, videos play once, photos hold five seconds), and a
   **download** button on each story that saves it to the phone's gallery as `story_@user_<date>.<ext>`. "Check now" runs a
   capture pass on the server; nothing is marked as seen.
+- **Multi-account:** add as many servers (or users on a server) as you like and switch between them from
+  **Settings → Account** (or the account icon at the bottom of the tablet rail) — each keeps its own sign-in, so
+  switching does not sign anything out. **Add another account** opens the same server screen; **Change server** there replaces a
+  server you never signed in on (a mistyped address leaves nothing behind) or adds one once your account works.
 - **Unsent** feed, global **Search**, **TikTok** (live view of the server's browser: tap = click, drag = scroll,
-  pinch = zoom, keyboard, view-only switch, restart, log out), **Settings** (password, 2FA, recovery key, sessions,
-  logging options, reconcile interval, TikTok connection, security log, wipe).
+  pinch = zoom, keyboard, view-only switch, restart, log out), **Settings** (account, password, 2FA, recovery key,
+  sessions, logging options, reconcile interval, TikTok connection, security log, wipe).
 - **Live updates** over the server's event stream while the app is open.
 - Phones get the bottom menu, tablets / landscape (≥ 900 dp) get the side rail and two panes.
+
+## Multiple accounts (0.4.0)
+
+One phone can hold several tiktok_logger accounts — another server (the homelab box and the VPS, say) or another
+user on the same server — and switch between them without signing out:
+
+- **Where:** the **Account** section at the top of Settings shows the account you are in (name, server address);
+  tapping it, **Switch account**, or the account icon at the bottom of the tablet rail opens the account menu. Each
+  account in the menu shows its user name (or host:port) and server, with the open one marked; **Add another account**
+  goes to the server screen (where you can check the address, trust a certificate and sign in with authentik before
+  saving). The same **Switch account** link is on the sign-in screen, so an account that is not signed in is never a
+  dead end.
+- **Switching** closes the current session and opens the other one with its own cookie and authentik tokens. Nothing
+  is signed out, and the tab state is rebuilt for the account (`key(session.id)`), so a chat or feed position opened on
+  one server never shows the other's data.
+- **Secrets stay apart:** `SecureCookieJar` and `KeystoreAuthentikStore` are created per account id
+  (`session-<id>.bin`, `authentik-<id>.bin`, all encrypted with the one Keystore AES-GCM key), and a removed account's
+  files are deleted. Trusted certificates are stored **per host**, so trusting a self-signed certificate for one server
+  never widens trust for another.
+- **Migration:** an install with the single saved server becomes the first account (`Account.MAIN`), which keeps the
+  old file names (`session.bin`, `authentik.bin`) and its trusted certificates — updating does not sign anyone out or
+  ask for a certificate again.
 
 ## Build
 

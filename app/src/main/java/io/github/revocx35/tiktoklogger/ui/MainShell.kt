@@ -73,6 +73,7 @@ import io.github.revocx35.tiktoklogger.ui.components.WaIcon
 import io.github.revocx35.tiktoklogger.ui.components.WaStatePill
 import io.github.revocx35.tiktoklogger.ui.components.WarnBanner
 import io.github.revocx35.tiktoklogger.ui.screens.AdminDeps
+import io.github.revocx35.tiktoklogger.ui.screens.AccountSwitcherDialog
 import io.github.revocx35.tiktoklogger.ui.screens.AdminScreen
 import io.github.revocx35.tiktoklogger.ui.screens.ChatListPane
 import io.github.revocx35.tiktoklogger.ui.screens.ChatListViewModel
@@ -201,6 +202,10 @@ fun MainShell(graph: AppGraph, session: ServerSession, state: AppState, wa: TtSt
         else -> null
     }
     var viewing by remember { mutableStateOf<Message?>(null) }
+    // The account menu: the open account, the others added on this phone, and "add another account".
+    val accounts by graph.controller.accounts.collectAsState()
+    val activeAccount by graph.controller.active.collectAsState()
+    var showAccounts by remember { mutableStateOf(false) }
     val (actions, save) = rememberMediaActions(session, context) { viewing = it }
     val chatList: ChatListViewModel = viewModel(key = "chats:${session.id}") { ChatListViewModel(session) }
     val chatListState = rememberLazyListState()
@@ -296,6 +301,11 @@ fun MainShell(graph: AppGraph, session: ServerSession, state: AppState, wa: TtSt
                                     refresh = { graph.controller.refresh().join() },
                                     onChangeServer = onChangeServer,
                                     onOpenAdmin = if (showAdmin) ({ nav.goTab(Tab.Admin) }) else null,
+                                    account = activeAccount,
+                                    accounts = accounts,
+                                    onOpenAccounts = { showAccounts = true },
+                                    onAddAccount = { graph.controller.beginAddAccount() },
+                                    onRemoveAccount = { graph.controller.removeAccount(it) },
                                 ),
                             )
                         }
@@ -306,7 +316,7 @@ fun MainShell(graph: AppGraph, session: ServerSession, state: AppState, wa: TtSt
 
         if (wide) {
             Row(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.ime.exclude(WindowInsets.navigationBars))) {
-                SideRail(activeTab, wa, railTabs, { nav.goTab(it) }, onLogout)
+                SideRail(activeTab, wa, railTabs, { nav.goTab(it) }, onLogout, activeAccount) { showAccounts = true }
                 Column(Modifier.weight(1f).fillMaxHeight(), content = content)
             }
         } else {
@@ -317,12 +327,23 @@ fun MainShell(graph: AppGraph, session: ServerSession, state: AppState, wa: TtSt
         }
     }
 
+    if (showAccounts) {
+        AccountSwitcherDialog(
+            accounts = accounts,
+            active = activeAccount,
+            onSwitch = { a -> showAccounts = false; graph.controller.switchTo(a.id) },
+            onAdd = { showAccounts = false; graph.controller.beginAddAccount() },
+            onRemove = { a -> graph.controller.removeAccount(a) },
+            onClose = { showAccounts = false },
+        )
+    }
+
     viewing?.let { msg -> MediaViewer(session, msg, onSave = { save(msg) }, onClose = { viewing = null }) }
 }
 
-/** The web's `.rail` on wide screens: menu items on top, TikTok status and log out at the bottom. */
+/** The web's `.rail` on wide screens: menu items on top, the account menu, TikTok status and log out below. */
 @Composable
-fun SideRail(active: Tab?, wa: TtStatus?, tabs: List<Tab>, onTab: (Tab) -> Unit, onLogout: () -> Unit) {
+fun SideRail(active: Tab?, wa: TtStatus?, tabs: List<Tab>, onTab: (Tab) -> Unit, onLogout: () -> Unit, account: io.github.revocx35.tiktoklogger.data.Account?, onAccount: () -> Unit) {
     val c = Wa.colors
     Row(Modifier.fillMaxHeight()) {
         Column(
@@ -335,6 +356,7 @@ fun SideRail(active: Tab?, wa: TtStatus?, tabs: List<Tab>, onTab: (Tab) -> Unit,
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Box(Modifier.clip(RoundedCornerShape(12.dp)).clickable { onTab(Tab.TikTok) }.padding(6.dp)) { WaStatePill(wa, compact = true) }
+                RailItem(if (account?.username != null) "Accounts" else "Account", WaIcons.user, false, false, onAccount)
                 RailItem("Log out", WaIcons.logout, false, false, onLogout)
             }
         }
