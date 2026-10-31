@@ -14,10 +14,32 @@ feed, a second tab); the app never contacts TikTok or its CDN. Media URLs are se
   interceptor: OAuth2 + PKCE in the system browser, bearer per request, `X-App-Authorization` swap for app tokens),
   `vnc/` (RFB client: DES for VNC auth, raw/zlib/hextile decoding).
 - **app/**: `AppRoot` routes server → signup → login/recover → recovery key → TikTok login → main;
-  `MainShell` tabs: Chats, **Feed**, Unsent, Search, TikTok (VNC), Settings, Users (admin only). `data/` holds `AppGraph`
+  `MainShell` pages: For You (**Feed**), Messages, Stories, Unsent, TikTok (VNC), Users (admin only), Settings, Search —
+  on phones the TikTok tab bar (Home · Stories · Inbox · Unsent · Profile; Profile is a bottom sheet with the other
+  pages, switch account and log out), on wide screens a 72 dp icon sidebar plus "More" (see *Look*). `data/` holds `AppGraph`
   (OkHttp with pinned trust), `SecureCookieJar` (session cookie encrypted with an Android Keystore AES-GCM key),
   `ServerTrust`, `AuthentikSignIn` (Custom Tab login, `AuthentikRedirectActivity` for `<applicationId>:/authentik`,
   Keystore-encrypted token store), `AppController` (state/`tt` status/events), `Prefs`, `AutoSave`.
+
+## Look (0.5.0)
+
+Styled after TikTok's own app and web UI, in step with the server's web UI (tiktok_logger v1.14, its ARCHITECTURE §5):
+
+- `ui/theme/Theme.kt`: `WaColors` carry the web's tokens (`#161823` text, `#F1F1F2`/`#2F2F2F` fills, `#121212` dark
+  background, red `#FE2C55` primary, `accentNav` for the active tab, `tabbar` white/black, own bubbles `bubbleOut` =
+  the web's `--out`). `WaType` uses **TikTok Sans** (`res/font/tiktok_sans_*.ttf`, the official v4.000 release's
+  12pt cut, SIL OFL — `third_party/TikTokSans-OFL.txt`).
+- `ui/theme/WaIcons.kt` is **generated** from the server's `web/src/components/Icon.tsx`: outline icons (2 px round
+  stroke) and solid `…Fill` twins for the active tab, plus a few solid native-only extras at the end.
+- `MainShell`: `BottomRail` (TikTok's tab bar, labels under the icons, black on For You, hidden inside a chat),
+  `SideRail` (folded TikTok sidebar), `MoreSheet` (Profile sheet).
+- Inbox (`ChatScreens.ChatListPane`): centred bold "Messages", capsule search, text chips, 56 dp avatars,
+  "preview · time". Chat: 44 dp header avatar with name + @username, the sender's 32 dp avatar beside incoming runs,
+  8 dp bubbles without shadow and without the time inside (a centred grey line at each day and after an hour's gap),
+  bare photos/videos, links/mentions in the text colour on own bubbles. `Composer`: grey 8 dp field with the attach icon
+  inside and a red round send arrow. For You: the author's avatar on top of the action column, solid like/comment/share
+  icons with bold counts. Login (`AuthShell`): the mark + wordmark top left, one plain centred column, grey borderless
+  4 dp fields, 8 dp buttons. Stories: cyan rings.
 
 ## Feed
 

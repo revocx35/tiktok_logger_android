@@ -62,34 +62,25 @@ import io.github.revocx35.tiktoklogger.ui.theme.WaType
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/** `.auth-page`: green banner behind a centered card with the tiktok_logger brand (like the web). */
+/** `.auth-page`, as TikTok's login page: the mark + wordmark top left, then one plain centred column with a bold title. */
 @Composable
 fun AuthShell(title: String, subtitle: String? = null, wide: Boolean = false, content: @Composable () -> Unit) {
     val c = Wa.colors
-    BoxWithConstraints(Modifier.fillMaxSize().background(c.bg)) {
-        val compact = maxWidth < 600.dp
-        Box(Modifier.fillMaxWidth().height(220.dp).background(c.authBanner))
+    Column(
+        Modifier.fillMaxSize().background(c.bg).verticalScroll(rememberScrollState()).statusBarsPadding().navigationBarsPadding().imePadding(),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+            BrandMark(size = 32.dp, iconSize = 20.dp, corner = 9.dp)
+            Text("tiktok_logger", style = WaType.wordmark, color = c.text)
+        }
         Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).statusBarsPadding().navigationBarsPadding().imePadding()
-                .padding(horizontal = if (compact) 12.dp else 16.dp, vertical = if (compact) 24.dp else 64.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Column(
-                Modifier
-                    .widthIn(max = if (wide) 620.dp else 440.dp)
-                    .fillMaxWidth()
-                    .shadow(24.dp, RoundedCornerShape(12.dp), ambientColor = Color(0x3D0B141A), spotColor = Color(0x3D0B141A))
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(c.panel)
-                    .padding(if (compact) 22.dp else 32.dp),
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 24.dp)) {
-                    BrandMark()
-                    Text("tiktok_logger", style = WaType.base.copy(fontWeight = FontWeight.SemiBold), color = c.text)
-                }
-                Text(title, style = WaType.authTitle, color = c.text, modifier = Modifier.padding(bottom = 8.dp))
-                if (subtitle != null) MutedText(subtitle)
-                Spacer(Modifier.height(16.dp))
+            Column(Modifier.widthIn(max = if (wide) 620.dp else 375.dp).fillMaxWidth()) {
+                Text(title, style = WaType.authTitle, color = c.text, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp))
+                if (subtitle != null) MutedText(subtitle, Modifier.fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                Spacer(Modifier.height(20.dp))
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) { content() }
             }
         }
@@ -103,7 +94,7 @@ private fun PasswordHints(password: String, username: String) {
     val noUser = username.length < 3 || !password.lowercase().contains(username.lowercase())
     Column(Modifier.padding(start = 4.dp)) {
         for ((ok, text) in listOf(long to "At least 12 characters (a passphrase of 4+ words is best)", noUser to "Does not contain your username")) {
-            Text("•  $text", style = WaType.small, color = if (ok) (if (c.isDark) c.ok else c.accent2) else c.muted)
+            Text("•  $text", style = WaType.small, color = if (ok) c.ok else c.muted)
         }
     }
 }

@@ -29,13 +29,15 @@ import io.github.revocx35.tiktoklogger.ui.theme.WaType
 
 private const val META_ID = "meta"
 
-private fun AnnotatedString.Builder.appendNodes(nodes: List<TextNode>, c: WaColors) {
+private fun AnnotatedString.Builder.appendNodes(nodes: List<TextNode>, c: WaColors, linkColor: Color? = null) {
+    // On a coloured (own) bubble links and mentions take the text colour, underlined, like the web's `.bubble.out a`.
+    val link = SpanStyle(color = linkColor ?: c.link, textDecoration = if (linkColor != null) androidx.compose.ui.text.style.TextDecoration.Underline else null)
     for (n in nodes) {
         when (n) {
             is TextNode.Text -> append(n.v)
             // Only http(s) URLs ever become links (TtText.safeHref); they open in the browser on tap.
-            is TextNode.Link -> withLink(LinkAnnotation.Url(n.href, TextLinkStyles(SpanStyle(color = c.link)))) { append(n.v) }
-            is TextNode.MentionNode -> withStyle(SpanStyle(color = c.link, fontWeight = FontWeight.Medium)) { append("@${n.name}") }
+            is TextNode.Link -> withLink(LinkAnnotation.Url(n.href, TextLinkStyles(link))) { append(n.v) }
+            is TextNode.MentionNode -> withStyle(link.merge(SpanStyle(fontWeight = FontWeight.Medium))) { append("@${n.name}") }
         }
     }
 }
@@ -52,6 +54,8 @@ fun WaTextView(
     color: Color = Wa.colors.text,
     trailing: TextUnit = 0.sp,
     modifier: Modifier = Modifier,
+    /** Colour for links/mentions instead of the theme's link colour (own bubbles). */
+    linkColor: Color? = null,
 ) {
     val c = Wa.colors
     val jumbo = remember(text) { TtText.jumboEmoji(text) }
@@ -66,7 +70,7 @@ fun WaTextView(
         buildAnnotatedString {
             lines.forEachIndexed { k, line ->
                 if (k > 0) append('\n')
-                appendNodes(line.c, c)
+                appendNodes(line.c, c, linkColor)
             }
             if (inline.isNotEmpty()) appendInlineContent(META_ID, " ")
         },

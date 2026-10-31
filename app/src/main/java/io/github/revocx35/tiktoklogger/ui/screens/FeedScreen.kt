@@ -1,6 +1,8 @@
 package io.github.revocx35.tiktoklogger.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -339,7 +341,7 @@ fun FeedScreen(vm: FeedViewModel, session: ServerSession, connected: Boolean, pr
                     .align(Alignment.BottomStart)
                     .fillMaxWidth()
                     .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xB3000000))))
-                    .padding(start = 14.dp, end = 84.dp, top = 56.dp, bottom = 18.dp),
+                    .padding(start = 14.dp, end = 76.dp, top = 56.dp, bottom = 18.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 Text(
@@ -381,7 +383,8 @@ fun FeedScreen(vm: FeedViewModel, session: ServerSession, connected: Boolean, pr
                 },
                 onToggleMute = { muted = !muted },
                 onRefresh = { vm.refresh() },
-                modifier = Modifier.align(Alignment.CenterEnd).padding(end = 10.dp),
+                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 8.dp, bottom = 18.dp),
+                author = item.author,
             )
 
             // Up/down arrows: same as swiping, easier with one hand.
@@ -427,11 +430,19 @@ internal fun FeedActionRail(
     onToggleMute: () -> Unit,
     onRefresh: () -> Unit,
     modifier: Modifier = Modifier,
+    /** TikTok puts the author's avatar on top of the column. */
+    author: io.github.revocx35.tiktoklogger.core.FeedAuthor? = null,
 ) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        FeedAction(WaIcons.heart, compact(likes), liked, if (liked) Color(0xFFFE2C55) else Color.White, onLike, "Like")
-        FeedAction(WaIcons.comment, compact(commentsCount), false, Color.White, onComments, "Comments")
-        FeedAction(WaIcons.forward, "Send", false, Color.White, onSend, "Send this video to a chat")
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        if (author != null) {
+            Box(Modifier.padding(bottom = 6.dp).size(48.dp).border(1.dp, Color.White, CircleShape).padding(1.dp), contentAlignment = Alignment.Center) {
+                io.github.revocx35.tiktoklogger.ui.components.Avatar(author.username ?: "tiktok", author.name ?: author.username ?: "?", author.avatar, size = 46.dp)
+            }
+        }
+        // TikTok's solid icons with bold counts underneath.
+        FeedAction(WaIcons.heartFill, compact(likes), liked, if (liked) Color(0xFFFE2C55) else Color.White, onLike, "Like")
+        FeedAction(WaIcons.commentFill, compact(commentsCount), false, Color.White, onComments, "Comments")
+        FeedAction(WaIcons.shareArrow, "Share", false, Color.White, onSend, "Send this video to a chat")
         FeedAction(
             icon = if (fit) WaIcons.fillScreen else WaIcons.fitScreen,
             label = if (fit) "Fill" else "Fit",
@@ -462,14 +473,15 @@ private fun FeedAction(
     onClick: () -> Unit,
     description: String = label,
 ) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Box(
-            Modifier.size(48.dp).clip(CircleShape).background(Color(0x66000000)),
-            contentAlignment = Alignment.Center,
-        ) {
-            IconBtn(icon, description, onClick, size = 44.dp, iconSize = 24.dp, tint = tint, active = active)
+    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        IconBtn(icon, description, onClick, size = 44.dp, iconSize = 30.dp, tint = tint, active = active)
+        if (label.isNotEmpty()) {
+            Text(
+                label,
+                color = Color.White,
+                style = WaType.tiny.copy(fontSize = 12.sp, fontWeight = FontWeight.Bold, shadow = androidx.compose.ui.graphics.Shadow(Color(0x80000000), blurRadius = 4f)),
+            )
         }
-        if (label.isNotEmpty()) Text(label, color = Color.White, style = WaType.small)
     }
 }
 
@@ -479,11 +491,11 @@ private fun FeedArrow(symbol: String, enabled: Boolean, onClick: () -> Unit) {
         Modifier
             .size(38.dp)
             .clip(CircleShape)
-            .background(if (enabled) Color(0x66000000) else Color(0x33000000)),
+            .background(if (enabled) Color(0x30FFFFFF) else Color(0x18FFFFFF)),
         contentAlignment = Alignment.Center,
     ) {
         if (enabled) {
-            IconBtn(WaIcons.back, symbol, onClick, size = 38.dp, iconSize = 18.dp, tint = Color.White)
+            IconBtn(if (symbol == "↑") WaIcons.arrowUp else WaIcons.arrowDown, symbol, onClick, size = 38.dp, iconSize = 18.dp, tint = Color.White)
         } else {
             Text(symbol, color = Color(0x88FFFFFF))
         }

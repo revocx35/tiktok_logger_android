@@ -29,6 +29,16 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import io.github.revocx35.tiktoklogger.ui.components.BrandMark
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -107,10 +117,24 @@ import kotlinx.serialization.Serializable
 @Serializable object SettingsRoute
 @Serializable object AdminRoute
 
-/** [adminOnly] tabs exist only for the admin (the first account). */
-enum class Tab(val label: String, val icon: ImageVector, val adminOnly: Boolean = false) {
-    Chats("Chats", WaIcons.chats), Feed("Feed", WaIcons.reels), Stories("Stories", WaIcons.stories), Deleted("Unsent", WaIcons.deleted), Search("Search", WaIcons.search), TikTok("TikTok", WaIcons.monitor), Settings("Settings", WaIcons.settings), Admin("Users", WaIcons.group, adminOnly = true)
+/**
+ * [adminOnly] tabs exist only for the admin (the first account). [tab] is the label in the TikTok app's tab bar on
+ * phones (Home · Stories · Inbox · Unsent, then Profile = the sheet with the rest); [iconOn] is the solid twin drawn
+ * for the active tab, as TikTok does. The order is the web sidebar's.
+ */
+enum class Tab(val label: String, val icon: ImageVector, val iconOn: ImageVector, val adminOnly: Boolean = false, val tab: String? = null) {
+    Feed("For You", WaIcons.home, WaIcons.homeFill, tab = "Home"),
+    Chats("Messages", WaIcons.inbox, WaIcons.inboxFill, tab = "Inbox"),
+    Stories("Stories", WaIcons.stories, WaIcons.storiesFill, tab = "Stories"),
+    Deleted("Unsent", WaIcons.deleted, WaIcons.deletedFill, tab = "Unsent"),
+    TikTok("TikTok", WaIcons.monitor, WaIcons.monitorFill),
+    Admin("Users", WaIcons.group, WaIcons.groupFill, adminOnly = true),
+    Settings("Settings", WaIcons.settings, WaIcons.settingsFill),
+    Search("Search", WaIcons.search, WaIcons.search),
 }
+
+/** The phone tab bar's slots, in TikTok's order. */
+private val BottomTabs = listOf(Tab.Feed, Tab.Stories, Tab.Chats, Tab.Deleted)
 
 private fun tabRoute(t: Tab): Any = when (t) {
     Tab.Chats -> ChatsRoute
@@ -129,17 +153,65 @@ private fun NavHostController.goTab(t: Tab) = navigate(tabRoute(t)) {
     restoreState = true
 }
 
+/** One item of the TikTok sidebar (icons only) or tab bar ([label] under the icon); [dot] = needs attention. */
 @Composable
-private fun RailItem(label: String, icon: ImageVector, active: Boolean, compact: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+private fun RailItem(
+    label: String,
+    icon: ImageVector,
+    active: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    tabLabel: String? = null,
+    tint: Color = Wa.colors.text,
+    activeTint: Color = Wa.colors.accentNav,
+    dot: Boolean = false,
+) {
     val c = Wa.colors
     Column(
-        modifier.width(if (compact) 58.dp else 60.dp).clip(RoundedCornerShape(12.dp)).background(if (active) c.active else androidx.compose.ui.graphics.Color.Transparent)
-            .clickable(role = Role.Tab, onClickLabel = label, onClick = onClick).padding(vertical = if (compact) 4.dp else 8.dp),
+        modifier.height(if (tabLabel != null) 50.dp else 52.dp).widthIn(min = 48.dp).clip(RoundedCornerShape(8.dp))
+            .clickable(role = Role.Tab, onClickLabel = label, onClick = onClick)
+            .semantics { contentDescription = label; selected = active },
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(2.dp),
+        verticalArrangement = Arrangement.Center,
     ) {
-        WaIcon(icon, 22.dp, if (active) c.accent else c.text2)
-        Text(label, style = WaType.tiny.copy(fontSize = 10.2.sp, lineHeight = 12.sp), color = if (active) c.accent else c.text2, maxLines = 1)
+        Box {
+            WaIcon(icon, if (tabLabel != null) 24.dp else 28.dp, if (active) activeTint else tint)
+            if (dot) Box(Modifier.align(Alignment.TopEnd).size(10.dp).clip(CircleShape).background(c.rail).padding(1.5.dp).clip(CircleShape).background(c.accent))
+        }
+        if (tabLabel != null) Text(tabLabel, style = WaType.tabLabel, color = if (active) activeTint else tint, maxLines = 1, modifier = Modifier.padding(top = 2.dp))
+    }
+}
+
+/** The Profile sheet (phones) / More sheet (tablets): who is signed in, the pages without a tab, accounts, log out. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MoreSheet(tabs: List<Tab>, wa: TtStatus?, username: String?, onTab: (Tab) -> Unit, onLogout: () -> Unit, onAccounts: () -> Unit, onClose: () -> Unit) {
+    val c = Wa.colors
+    ModalBottomSheet(onDismissRequest = onClose, containerColor = c.panel, dragHandle = { Box(Modifier.padding(top = 8.dp).size(36.dp, 4.dp).clip(RoundedCornerShape(2.dp)).background(c.border)) }) {
+        Column(Modifier.navigationBarsPadding().padding(horizontal = 8.dp, vertical = 4.dp)) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Box(Modifier.size(48.dp).clip(CircleShape).background(c.panel2), contentAlignment = Alignment.Center) { WaIcon(WaIcons.userFill, 24.dp, c.muted) }
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(if (username != null) "@$username" else "tiktok_logger", style = WaType.base.copy(fontWeight = FontWeight.Bold), color = c.text)
+                    WaStatePill(wa)
+                }
+            }
+            val row: @Composable (ImageVector, String, () -> Unit, (@Composable () -> Unit)?) -> Unit = { icon, text, onClick, trailing ->
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable { onClose(); onClick() }.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    WaIcon(icon, 24.dp, c.text)
+                    Text(text, style = WaType.base.copy(fontSize = 16.sp, fontWeight = FontWeight.SemiBold), color = c.text, modifier = Modifier.weight(1f))
+                    trailing?.invoke()
+                }
+            }
+            for (t in tabs) row(t.icon, t.label, { onTab(t) }, if (t == Tab.TikTok) ({ WaStatePill(wa, compact = true) }) else null)
+            row(WaIcons.user, "Switch account", onAccounts, null)
+            Box(Modifier.fillMaxWidth().padding(vertical = 4.dp).height(1.dp).background(c.border))
+            row(WaIcons.logout, if (username != null) "Log out @$username" else "Log out", onLogout, null)
+        }
     }
 }
 
@@ -210,9 +282,8 @@ fun MainShell(graph: AppGraph, session: ServerSession, state: AppState, wa: TtSt
     val chatList: ChatListViewModel = viewModel(key = "chats:${session.id}") { ChatListViewModel(session) }
     val chatListState = rememberLazyListState()
     val showAdmin = state.role == UserRole.Admin
-    // The phone bottom rail keeps 7 items; admins open Users from Settings there.
     val railTabs = Tab.entries.filter { showAdmin || !it.adminOnly }
-    val bottomTabs = Tab.entries.filter { (showAdmin || !it.adminOnly) && it != Tab.Admin }
+    var moreOpen by remember { mutableStateOf(false) }
     val needsAttention = wa?.needsLogin == true
     val sender = remember(session) { ServerSender(context.applicationContext, session.api) }
     val sendBlocked = if (wa?.connected == true) null else "TikTok is not connected right now, so messages can’t be sent."
@@ -316,14 +387,19 @@ fun MainShell(graph: AppGraph, session: ServerSession, state: AppState, wa: TtSt
 
         if (wide) {
             Row(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.ime.exclude(WindowInsets.navigationBars))) {
-                SideRail(activeTab, wa, railTabs, { nav.goTab(it) }, onLogout, activeAccount) { showAccounts = true }
+                SideRail(activeTab, wa, railTabs, { nav.goTab(it) }) { moreOpen = true }
                 Column(Modifier.weight(1f).fillMaxHeight(), content = content)
             }
         } else {
             Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.ime.exclude(WindowInsets.navigationBars))) {
                 content()
-                if (!inChat) BottomRail(activeTab, bottomTabs) { if (it == null) onLogout() else nav.goTab(it) }
+                if (!inChat) BottomRail(activeTab, wa, activeTab == Tab.Feed, moreOpen, { nav.goTab(it) }) { moreOpen = true }
             }
+        }
+
+        if (moreOpen) {
+            // Phones: every page without a tab; tablets: the sidebar shows them all, the sheet keeps accounts + log out.
+            MoreSheet(if (wide) emptyList() else railTabs.filter { it !in BottomTabs }, wa, state.username, { nav.goTab(it) }, onLogout, { showAccounts = true }) { moreOpen = false }
         }
     }
 
@@ -341,40 +417,37 @@ fun MainShell(graph: AppGraph, session: ServerSession, state: AppState, wa: TtSt
     viewing?.let { msg -> MediaViewer(session, msg, onSave = { save(msg) }, onClose = { viewing = null }) }
 }
 
-/** The web's `.rail` on wide screens: menu items on top, the account menu, TikTok status and log out below. */
+/** TikTok's folded (icons only) sidebar on wide screens: the app's mark, one icon per page, "More" below. */
 @Composable
-fun SideRail(active: Tab?, wa: TtStatus?, tabs: List<Tab>, onTab: (Tab) -> Unit, onLogout: () -> Unit, account: io.github.revocx35.tiktoklogger.data.Account?, onAccount: () -> Unit) {
+fun SideRail(active: Tab?, wa: TtStatus?, tabs: List<Tab>, onTab: (Tab) -> Unit, onMore: () -> Unit) {
     val c = Wa.colors
     Row(Modifier.fillMaxHeight()) {
         Column(
-            Modifier.width(72.dp).fillMaxHeight().background(c.rail).statusBarsPadding().navigationBarsPadding().padding(vertical = 10.dp),
+            Modifier.width(72.dp).fillMaxHeight().background(c.rail).statusBarsPadding().navigationBarsPadding().padding(vertical = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.SpaceBetween,
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                for (t in tabs) RailItem(t.label, t.icon, active == t, false, { onTab(t) })
-            }
-            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Box(Modifier.clip(RoundedCornerShape(12.dp)).clickable { onTab(Tab.TikTok) }.padding(6.dp)) { WaStatePill(wa, compact = true) }
-                RailItem(if (account?.username != null) "Accounts" else "Account", WaIcons.user, false, false, onAccount)
-                RailItem("Log out", WaIcons.logout, false, false, onLogout)
-            }
+            BrandMark(size = 32.dp, iconSize = 20.dp, corner = 9.dp, modifier = Modifier.padding(bottom = 12.dp))
+            for (t in tabs) RailItem(t.label, if (active == t) t.iconOn else t.icon, active == t, { onTab(t) }, dot = t == Tab.TikTok && wa?.connected != true)
+            RailItem("More", WaIcons.menuDots, false, onMore)
         }
         Box(Modifier.width(1.dp).fillMaxHeight().background(c.border))
     }
 }
 
-/** The rail at the bottom on phones (hidden inside a chat). Log out is in Settings there (no room for a 7th item). */
+/** The TikTok app's tab bar on phones (hidden inside a chat; black on For You): four tabs and Profile (the sheet). */
 @Composable
-fun BottomRail(active: Tab?, tabs: List<Tab>, onTab: (Tab?) -> Unit) {
+fun BottomRail(active: Tab?, wa: TtStatus?, dark: Boolean, profileOpen: Boolean, onTab: (Tab) -> Unit, onProfile: () -> Unit) {
     val c = Wa.colors
+    val bg = if (dark) Color.Black else c.tabbar
+    val on = if (dark) Color.White else c.text
+    val off = if (dark) Color.White.copy(alpha = 0.6f) else c.muted
     Column {
-        Box(Modifier.fillMaxWidth().height(1.dp).background(c.border))
-        Row(
-            Modifier.fillMaxWidth().background(c.rail).navigationBarsPadding().padding(horizontal = 6.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-        ) {
-            for (t in tabs) RailItem(t.label, t.icon, active == t, true, { onTab(t) }, Modifier.weight(1f))
+        Box(Modifier.fillMaxWidth().height(1.dp).background(if (dark) Color.White.copy(alpha = 0.12f) else c.border))
+        Row(Modifier.fillMaxWidth().background(bg).navigationBarsPadding().padding(vertical = 2.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+            for (t in BottomTabs) RailItem(t.label, if (active == t) t.iconOn else t.icon, active == t, { onTab(t) }, Modifier.weight(1f), tabLabel = t.tab, tint = off, activeTint = on)
+            val profileOn = profileOpen || (active != null && active !in BottomTabs)
+            RailItem("Profile", if (profileOn) WaIcons.userFill else WaIcons.user, profileOn, onProfile, Modifier.weight(1f), tabLabel = "Profile", tint = off, activeTint = on, dot = wa?.connected != true)
         }
     }
 }

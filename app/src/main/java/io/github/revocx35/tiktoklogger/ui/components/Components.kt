@@ -142,18 +142,19 @@ fun WaButton(
         BtnStyle.Primary -> Triple(c.accent, c.accentText, c.accent)
         BtnStyle.Danger -> Triple(Color.Transparent, c.danger, c.danger)
         BtnStyle.Ghost -> Triple(Color.Transparent, c.text, c.border)
-        BtnStyle.Default -> Triple(c.panel, c.text, c.border)
+        BtnStyle.Default -> Triple(c.panel2, c.text, Color.Transparent)
     }
-    val shape = RoundedCornerShape(20.dp)
+    // TikTok's buttons: 8 dp corners, bold labels; the primary one is red.
+    val shape = RoundedCornerShape(8.dp)
     Row(
         modifier = modifier
             .then(if (block) Modifier.fillMaxWidth() else Modifier)
-            .defaultMinSize(minHeight = if (tiny) 28.dp else 38.dp)
+            .defaultMinSize(minHeight = if (tiny) 28.dp else 40.dp)
             .clip(shape)
             .background(bg, shape)
             .border(1.dp, border, shape)
             .clickable(enabled = enabled && !busy, role = Role.Button, onClick = onClick)
-            .alpha(if (enabled) 1f else 0.55f)
+            .alpha(if (enabled) 1f else 0.45f)
             .padding(if (tiny) PaddingValues(horizontal = 10.dp, vertical = 2.dp) else PaddingValues(horizontal = 18.dp, vertical = 8.dp)),
         horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
@@ -162,7 +163,7 @@ fun WaButton(
             Spinner(if (tiny) 14.dp else 18.dp)
         } else {
             if (icon != null) WaIcon(icon, if (tiny) 14.dp else 18.dp, fg)
-            Text(text, color = fg, style = if (tiny) WaType.small else WaType.base, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(text, color = fg, style = (if (tiny) WaType.small else WaType.base).copy(fontWeight = FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -282,11 +283,12 @@ fun Badge(text: String, tone: BadgeTone, icon: ImageVector? = null, modifier: Mo
 @Composable
 fun FilterChip(text: String, active: Boolean, onClick: () -> Unit) {
     val c = Wa.colors
-    val bg = if (active) lerpColor(c.panel, c.accent, 0.18f) else c.panel2
+    // TikTok's category chips: plain text, the chosen one on a grey rounded box.
+    val bg = if (active) c.panel2 else Color.Transparent
     Box(
-        Modifier.clip(RoundedCornerShape(16.dp)).background(bg).clickable(role = Role.Tab, onClick = onClick).padding(horizontal = 12.dp, vertical = 4.dp),
+        Modifier.clip(RoundedCornerShape(8.dp)).background(bg).clickable(role = Role.Tab, onClick = onClick).padding(horizontal = 12.dp, vertical = 6.dp),
     ) {
-        Text(text, style = WaType.small.copy(fontSize = 13.sp), color = if (active) c.accentOnPanel else c.text2)
+        Text(text, style = WaType.small.copy(fontSize = 14.sp, fontWeight = FontWeight.SemiBold), color = if (active) c.text else c.text2)
     }
 }
 
@@ -306,7 +308,7 @@ fun OkNote(text: String?, icon: ImageVector? = null) {
     if (text.isNullOrBlank()) return
     Row(Modifier.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         if (icon != null) WaIcon(icon, 16.dp, Wa.colors.accentOnPanel)
-        Text(text, color = if (Wa.colors.isDark) Wa.colors.ok else Wa.colors.accent2, style = WaType.base)
+        Text(text, color = Wa.colors.ok, style = WaType.base)
     }
 }
 
@@ -382,8 +384,9 @@ fun WaTextField(
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        if (label != null) Text(label, style = WaType.base.copy(fontSize = 13.5.sp), color = c.text2)
-        val shape = RoundedCornerShape(8.dp)
+        if (label != null) Text(label, style = WaType.base.copy(fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold), color = c.text)
+        // TikTok's fields: grey, borderless, 4 dp corners (a faint outline while focused).
+        val shape = RoundedCornerShape(4.dp)
         BasicTextField(
             value = value,
             onValueChange = onValueChange,
@@ -404,9 +407,9 @@ fun WaTextField(
             modifier = Modifier
                 .fillMaxWidth()
                 .alpha(if (enabled) 1f else 0.6f)
-                .background(c.panel, shape)
-                .border(BorderStroke(if (focused) 2.dp else 1.dp, if (focused) c.accent else c.border), shape)
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+                .background(c.panel2, shape)
+                .border(BorderStroke(1.dp, if (focused) c.border else Color.Transparent), shape)
+                .padding(horizontal = 12.dp, vertical = 12.dp),
             decorationBox = { inner ->
                 Box {
                     if (value.isEmpty() && placeholder != null) Text(placeholder, style = WaType.base, color = c.muted, maxLines = 1)
@@ -430,7 +433,7 @@ fun SearchBox(
 ) {
     val c = Wa.colors
     Row(
-        modifier.clip(RoundedCornerShape(8.dp)).background(c.panel2).padding(start = 10.dp, end = 4.dp).heightIn(min = 38.dp),
+        modifier.clip(RoundedCornerShape(50)).background(c.panel2).padding(start = 14.dp, end = 4.dp).heightIn(min = 40.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {

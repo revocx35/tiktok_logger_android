@@ -285,7 +285,15 @@ private fun AuthorChip(a: StoryAuthor, active: Boolean, onClick: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Box(contentAlignment = Alignment.BottomEnd) {
-            Avatar(a.id, a.name ?: a.username ?: a.id, a.avatarUrl, size = 54.dp)
+            // TikTok's cyan story ring around the avatar (as the web's `.story-ring`).
+            Box(
+                Modifier.size(60.dp).clip(CircleShape)
+                    .background(Brush.linearGradient(listOf(Color(0xFF25F4EE), Color(0xFF20D5EC), Color(0xFF1E9BD7))))
+                    .padding(2.5.dp).clip(CircleShape).background(c.panel).padding(2.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Avatar(a.id, a.name ?: a.username ?: a.id, a.avatarUrl, size = 51.dp)
+            }
             Box(
                 Modifier.size(18.dp).clip(CircleShape).background(c.accent),
                 contentAlignment = Alignment.Center,

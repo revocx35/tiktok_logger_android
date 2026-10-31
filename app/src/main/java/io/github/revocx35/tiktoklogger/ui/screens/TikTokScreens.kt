@@ -218,7 +218,7 @@ fun SessionImportPanel(api: ApiClient) {
             )
             WaTextField(text, { text = it; done = false }, "Copied request", singleLine = false, placeholder = "curl 'https://www.tiktok.com/' … -b 'sessionid=…'")
             ErrorNote(error)
-            if (done) Text("Login handed over. The status changes to Connected once TikTok accepts it.", style = WaType.small, color = c.accent2)
+            if (done) Text("Login handed over. The status changes to Connected once TikTok accepts it.", style = WaType.small, color = c.ok)
             WaButton("Use this login", {
                 busy = true
                 error = null

@@ -1,20 +1,22 @@
 # tiktok_logger for Android
 
 A native Android client (Kotlin, Jetpack Compose) for your self-hosted
-[tiktok_logger](https://github.com/revocx35/tiktok_logger) server. It looks like the server's web UI (TikTok's red and
-cyan, light and dark), but it is a real app: native lists and media playback, a native view of the server's TikTok
-browser, and the session kept in the Android Keystore.
+[tiktok_logger](https://github.com/revocx35/tiktok_logger) server. Since 0.5.0 it looks like TikTok's own app — the
+bottom tab bar (Home · Stories · Inbox · Unsent · Profile), TikTok Sans, TikTok's greys and red, the inbox and chat
+layout, the For You action column — just like the server's web UI, in light and dark. It is a real app: native lists
+and media playback, a native view of the server's TikTok browser, and the session kept in the Android Keystore.
 
 **The phone never talks to TikTok.** Chats, sending, media and the For You feed all go through your server, so TikTok
 only ever sees the server's browser and IP address.
 
-The icon and the in-app mark are the server's own logo (the cyan→red tile with a white shield used by the web UI).
+The icon and the in-app mark are the server's own logo (the cyan→red tile with a white shield used by the web UI), not
+TikTok's.
 
-| Chats | Feed | TikTok screen | Settings |
+| Inbox | Chat | Log in | Tablet |
 |---|---|---|---|
-| ![](docs/screenshots/phone_chats.png) | ![](docs/screenshots/phone_feed.png) | ![](docs/screenshots/phone_tiktok.png) | ![](docs/screenshots/phone_settings.png) |
+| ![](docs/screenshots/phone_chats.png) | ![](docs/screenshots/phone_chat.png) | ![](docs/screenshots/phone_login.png) | ![](docs/screenshots/tablet_two_pane.png) |
 
-*(Screens from the emulator against a test server: no TikTok account is connected there, so the lists are empty.)*
+*(Render tests with sample data — `./gradlew :app:recordRoborazziDebug`; nothing here is a real conversation.)*
 
 ## Features
 

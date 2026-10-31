@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -127,7 +128,7 @@ private fun ComposeBar(icon: androidx.compose.ui.graphics.vector.ImageVector, ti
         Box(Modifier.width(4.dp).heightIn(min = 44.dp).background(c.accent))
         WaIcon(icon, 16.dp, c.text2)
         Column(Modifier.weight(1f).padding(vertical = 6.dp)) {
-            Text(title, style = WaType.small.copy(fontWeight = FontWeight.Medium), color = c.accent2, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(title, style = WaType.small.copy(fontWeight = FontWeight.Medium), color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(text, style = WaType.small, color = c.text2, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         extra?.invoke()
@@ -276,7 +277,8 @@ fun Composer(
         }
     }
 
-    Column(modifier.fillMaxWidth().background(c.head).navigationBarsPadding().padding(horizontal = 8.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Box(Modifier.fillMaxWidth().height(1.dp).background(c.border))
+    Column(modifier.fillMaxWidth().background(c.head).navigationBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         when {
             editing != null -> ComposeBar(WaIcons.edit, "Edit message", previewOf(editing), {
                 text = ""
@@ -306,34 +308,36 @@ fun Composer(
                 SendButton("Send voice message") { stopRecording(true) }
             }
         } else {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                if (editing == null) IconBtn(WaIcons.attach, "Attach a file", { picker.launch("*/*") }, enabled = !disabled)
-                BasicTextField(
-                    value = text,
-                    onValueChange = { text = it },
-                    enabled = disabledReason == null,
-                    textStyle = WaType.base.copy(color = c.text, fontSize = 15.sp),
-                    cursorBrush = SolidColor(c.accent),
-                    maxLines = 6,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true),
-                    modifier = Modifier
-                        .weight(1f)
-                        .focusRequester(focus)
-                        .heightIn(min = 40.dp)
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(c.panel)
-                        .border(1.dp, c.border, RoundedCornerShape(20.dp))
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
-                    decorationBox = { inner ->
-                        Box {
-                            if (text.isEmpty()) Text(if (editing != null) "Edit message" else if (file != null) "Add a caption" else "Message", style = WaType.base.copy(fontSize = 15.sp), color = c.muted, maxLines = 1)
-                            inner()
-                        }
-                    },
-                )
+            // TikTok's composer: one grey rounded field (attach icon inside), a red round send arrow beside it.
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    Modifier.weight(1f).heightIn(min = 44.dp).clip(RoundedCornerShape(8.dp)).background(c.panel2).padding(start = 14.dp, end = 2.dp),
+                    verticalAlignment = Alignment.Bottom,
+                ) {
+                    BasicTextField(
+                        value = text,
+                        onValueChange = { text = it },
+                        enabled = disabledReason == null,
+                        textStyle = WaType.base.copy(color = c.text, fontSize = 15.sp),
+                        cursorBrush = SolidColor(c.accent),
+                        maxLines = 6,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, capitalization = KeyboardCapitalization.Sentences, autoCorrectEnabled = true),
+                        modifier = Modifier
+                            .weight(1f)
+                            .focusRequester(focus)
+                            .padding(vertical = 12.dp),
+                        decorationBox = { inner ->
+                            Box {
+                                if (text.isEmpty()) Text(if (editing != null) "Edit message" else if (file != null) "Add a caption" else "Send a message...", style = WaType.base.copy(fontSize = 15.sp), color = c.muted, maxLines = 1)
+                                inner()
+                            }
+                        },
+                    )
+                    if (editing == null) IconBtn(WaIcons.image, "Attach a file", { picker.launch("*/*") }, enabled = !disabled, tint = c.text2)
+                }
                 when {
                     busy -> Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) { Spinner(20.dp) }
-                    text.isNotBlank() || file != null || editing != null -> SendButton(if (editing != null) "Save edit" else "Send", if (editing != null) WaIcons.check else WaIcons.send, !disabled) { send() }
+                    text.isNotBlank() || file != null || editing != null -> SendButton(if (editing != null) "Save edit" else "Send", if (editing != null) WaIcons.check else WaIcons.arrowUp, !disabled) { send() }
                     else -> IconBtn(WaIcons.mic, "Record a voice message", {
                         if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) startRecording()
                         else micPermission.launch(Manifest.permission.RECORD_AUDIO)
@@ -345,10 +349,10 @@ fun Composer(
 }
 
 @Composable
-private fun SendButton(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector = WaIcons.send, enabled: Boolean = true, onClick: () -> Unit) {
+private fun SendButton(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector = WaIcons.arrowUp, enabled: Boolean = true, onClick: () -> Unit) {
     val c = Wa.colors
     Box(
-        Modifier.size(40.dp).clip(CircleShape).background(c.accent).clickable(enabled = enabled, role = Role.Button, onClickLabel = label, onClick = onClick),
+        Modifier.padding(4.dp).size(36.dp).clip(CircleShape).background(c.accent).clickable(enabled = enabled, role = Role.Button, onClickLabel = label, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) { WaIcon(icon, 20.dp, c.accentText, contentDescription = label) }
 }

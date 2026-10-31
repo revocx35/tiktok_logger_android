@@ -79,6 +79,7 @@ import io.github.revocx35.tiktoklogger.ui.components.EmptyState
 import io.github.revocx35.tiktoklogger.ui.components.ErrorNote
 import io.github.revocx35.tiktoklogger.ui.components.FilterChip
 import io.github.revocx35.tiktoklogger.ui.components.IconBtn
+import io.github.revocx35.tiktoklogger.ui.components.BubbleAvatar
 import io.github.revocx35.tiktoklogger.ui.components.MessageBubble
 import io.github.revocx35.tiktoklogger.ui.components.MutedText
 import io.github.revocx35.tiktoklogger.ui.components.SearchBox
@@ -108,17 +109,18 @@ fun ChatListPane(
     val fmt = LocalFormatter.current
     Column(modifier.background(c.panel)) {
         val sender = LocalSender.current
-        Row(Modifier.fillMaxWidth().statusBarsPadding().height(60.dp).padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("Chats", style = WaType.paneTitle, color = c.text, modifier = Modifier.weight(1f))
+        // TikTok's inbox: a centred bold "Messages" title, the rounded search field, plain-text filter chips.
+        Box(Modifier.fillMaxWidth().statusBarsPadding().height(52.dp).padding(horizontal = 16.dp), contentAlignment = Alignment.Center) {
+            Text("Messages", style = WaType.paneTitle, color = c.text)
         }
         SearchBox(
             state.query,
             { state.query = it },
-            "Search chats · Enter searches messages",
-            Modifier.padding(start = 12.dp, end = 12.dp, bottom = 8.dp).fillMaxWidth(),
+            "Search · Enter searches messages",
+            Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp).fillMaxWidth(),
             onSubmit = { if (state.query.trim().length >= 2) onSearchMessages(state.query.trim()) },
         )
-        FlowRow(Modifier.padding(start = 12.dp, end = 12.dp, bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        FlowRow(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             for (f in ChatFilter.entries) FilterChip(f.label, state.filter == f) { state.filter = f }
         }
         ErrorNote(state.error, Modifier.padding(horizontal = 12.dp))
@@ -126,7 +128,7 @@ fun ChatListPane(
         val visible = state.visible().distinctBy { it.id }
         when {
             chats == null -> Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) { Spinner() }
-            visible.isEmpty() -> EmptyState(WaIcons.chats, if (chats.isNotEmpty()) "No matching chats" else "No chats logged yet") {
+            visible.isEmpty() -> EmptyState(WaIcons.inbox, if (chats.isNotEmpty()) "No matching chats" else "No chats logged yet") {
                 if (chats.isEmpty()) MutedText("Chats appear here as soon as TikTok is connected and messages arrive.", textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             }
             else -> LazyColumn(Modifier.weight(1f), state = listState) {
@@ -138,48 +140,43 @@ fun ChatListPane(
     }
 }
 
+/** One inbox row as in TikTok: 56 dp avatar, the name in bold, "preview · time" in grey below, badges on the right. */
 @Composable
 private fun ChatRow(c: ChatSummary, active: Boolean, time: String, onClick: () -> Unit) {
     val col = Wa.colors
     Row(
-        Modifier.fillMaxWidth().height(72.dp).background(if (active) col.active else col.panel).clickable(role = Role.Button, onClick = onClick).padding(horizontal = 12.dp),
+        Modifier.fillMaxWidth().heightIn(min = 72.dp).background(if (active) col.active else col.panel).clickable(role = Role.Button, onClick = onClick).padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Avatar(c.id, c.name, c.avatarUrl, c.kind)
-        Column(Modifier.weight(1f).fillMaxHeight()) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp, Alignment.CenterVertically)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(c.name, style = WaType.chatName, color = col.text, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                    Text(time, style = WaType.tiny, color = col.muted, maxLines = 1)
-                }
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    val last = c.lastMessage
-                    Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        if (last?.deleted == true) WaIcon(WaIcons.ban, 14.dp, col.danger)
-                        val preview = if (last == null) {
-                            null
-                        } else {
-                            buildAnnotatedString {
-                                val prefix = if (c.kind == ChatKind.Group && last.senderName != null) "${last.senderName}: " else if (last.fromMe) "You: " else null
-                                if (prefix != null) withStyle(SpanStyle(fontWeight = FontWeight.Medium)) { append(prefix) }
-                                append(last.text?.let { TtText.strip(it) } ?: "")
-                            }
-                        }
-                        if (preview != null) {
-                            Text(preview, style = WaType.small.copy(fontSize = 13.2.sp), color = if (last?.deleted == true) col.danger else col.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        } else {
-                            Text("No messages logged", style = WaType.small.copy(fontSize = 13.2.sp, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic), color = col.muted, maxLines = 1)
-                        }
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        if (c.pinned) WaIcon(WaIcons.pushpin, 14.dp, col.muted, contentDescription = "Pinned")
-                        if (c.removed) Badge("removed", BadgeTone.Gray)
-                        if (c.deletedCount > 0) Badge("${c.deletedCount}", BadgeTone.Red, WaIcons.ban)
+        Avatar(c.id, c.name, c.avatarUrl, c.kind, size = 56.dp)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(c.name, style = WaType.chatName, color = col.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                val last = c.lastMessage
+                if (last?.deleted == true) WaIcon(WaIcons.ban, 14.dp, col.danger)
+                val preview = if (last == null) {
+                    null
+                } else {
+                    buildAnnotatedString {
+                        val prefix = if (c.kind == ChatKind.Group && last.senderName != null) "${last.senderName}: " else if (last.fromMe) "You: " else null
+                        if (prefix != null) append(prefix)
+                        append(last.text?.let { TtText.strip(it) } ?: "")
                     }
                 }
+                if (preview != null) {
+                    Text(preview, style = WaType.small.copy(fontSize = 14.sp), color = if (last?.deleted == true) col.danger else col.muted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                } else {
+                    Text("No messages logged", style = WaType.small.copy(fontSize = 14.sp, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic), color = col.muted, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
+                }
+                if (time.isNotEmpty()) Text("· $time", style = WaType.small.copy(fontSize = 14.sp), color = col.muted, maxLines = 1)
             }
-            Box(Modifier.fillMaxWidth().height(1.dp).background(col.border))
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (c.pinned) WaIcon(WaIcons.pushpin, 14.dp, col.muted, contentDescription = "Pinned")
+            if (c.muted) WaIcon(WaIcons.mute, 14.dp, col.muted, contentDescription = "Muted")
+            if (c.removed) Badge("removed", BadgeTone.Gray)
+            if (c.deletedCount > 0) Badge("${c.deletedCount}", BadgeTone.Red, WaIcons.ban)
         }
     }
 }
@@ -188,13 +185,12 @@ private fun ChatRow(c: ChatSummary, active: Boolean, time: String, onClick: () -
 @Composable
 fun NoChatSelected(modifier: Modifier = Modifier) {
     val c = Wa.colors
-    Column(modifier.background(c.panel2)) {
+    Column(modifier.background(c.panel)) {
         Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-            EmptyState(WaIcons.shield, "tiktok_logger") {
-                MutedText("Select a chat to read its log. Messages deleted for everyone stay visible here and are marked in red.", textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            EmptyState(WaIcons.inbox, "Your messages") {
+                MutedText("Select a chat to read its log. Messages that were unsent stay visible here and are marked in red.", textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             }
         }
-        Box(Modifier.fillMaxWidth().height(6.dp).background(c.accent))
     }
 }
 
@@ -209,6 +205,8 @@ private sealed interface Row_ {
 }
 
 private const val GROUP_GAP_MS = 5 * 60_000L
+/** A gap this long gets its own centred time line, as in TikTok's chat. */
+private const val TIME_GAP_MS = 60 * 60_000L
 
 /** The chat log: header, in-chat search, messages with sticky day separators, read-only footer. */
 @OptIn(ExperimentalFoundationApi::class)
@@ -267,8 +265,12 @@ fun ChatPane(
         for (m in state.messages.distinctBy { it.id }) {
             val dk = fmt.dayKey(m.ts)
             if (dk != lastDay) {
-                out.add(Row_.Day("d-$dk", fmt.dayLabel(m.ts)))
+                out.add(Row_.Day("d-$dk", "${fmt.dayLabel(m.ts)} ${fmt.time(m.ts)}"))
                 lastDay = dk
+                prev = null
+            } else if (prev != null && m.ts - prev.ts > TIME_GAP_MS) {
+                // TikTok puts the time between messages (centred, no bubble) instead of inside every bubble.
+                out.add(Row_.Day("t-${m.id}", fmt.time(m.ts)))
                 prev = null
             }
             val p = prev
@@ -370,16 +372,17 @@ fun ChatPane(
                     }, tint = c.accent)
                 }
             } else Row(
-                Modifier.fillMaxWidth().background(c.head).statusBarsPadding().height(60.dp).padding(start = if (onBack != null) 4.dp else 16.dp, end = 8.dp),
+                Modifier.fillMaxWidth().background(c.head).statusBarsPadding().height(64.dp).padding(start = if (onBack != null) 4.dp else 16.dp, end = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 if (onBack != null) IconBtn(WaIcons.back, "Back to chats", onBack)
-                Avatar(state.chatId, title, chat?.avatarUrl, chat?.kind, 40.dp)
+                Avatar(state.chatId, title, chat?.avatarUrl, chat?.kind, 44.dp)
                 Column(Modifier.weight(1f)) {
-                    Text(title, style = WaType.chatName, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(title, style = WaType.chatName.copy(fontSize = 17.sp, fontWeight = FontWeight.Bold), color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     if (chat != null) {
                         val sub = buildString {
+                            chat.username?.let { append("@$it · ") }
                             append("${chat.messageCount} logged")
                             if (chat.deletedCount > 0) append(" · ${chat.deletedCount} unsent kept")
                             if (chat.removed) append(" · removed from TikTok")
@@ -390,6 +393,7 @@ fun ChatPane(
                 }
                 IconBtn(WaIcons.search, "Search in chat", { state.searchOpen = !state.searchOpen }, active = state.searchOpen)
             }
+            Box(Modifier.fillMaxWidth().height(1.dp).background(c.border))
             if (state.searchOpen) {
                 val focus = remember { FocusRequester() }
                 LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
@@ -415,7 +419,7 @@ fun ChatPane(
             ErrorNote(state.error, Modifier.padding(horizontal = 16.dp))
             BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
                 val maxBubble: Dp = if (wide) minOf(maxWidth * 0.65f, 560.dp) else maxWidth * 0.85f
-                val hPad = if (wide) maxWidth * 0.06f else 10.dp
+                val hPad = if (wide) 20.dp else 12.dp
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
@@ -433,18 +437,20 @@ fun ChatPane(
                     }
                     for (r in rows) {
                         when (r) {
-                            is Row_.Day -> stickyHeader(key = r.key, contentType = "day") {
-                                Box(Modifier.fillMaxWidth().padding(vertical = 10.dp), contentAlignment = Alignment.Center) {
-                                    Text(
-                                        r.label,
-                                        style = WaType.small.copy(fontSize = 12.sp),
-                                        color = c.text2,
-                                        modifier = Modifier.shadow(1.dp, RoundedCornerShape(8.dp)).clip(RoundedCornerShape(8.dp)).background(c.system).padding(horizontal = 12.dp, vertical = 5.dp),
-                                    )
+                            is Row_.Day -> item(key = r.key, contentType = "day") {
+                                // TikTok: the day/time as centred grey text between messages, no pill.
+                                Box(Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 6.dp), contentAlignment = Alignment.Center) {
+                                    Text(r.label, style = WaType.small.copy(fontSize = 12.sp), color = c.muted)
                                 }
                             }
                             is Row_.Msg -> item(key = r.key, contentType = "msg") {
-                                MessageBubble(r.m, isGroup, r.showSender, state.highlight == r.m.id, maxBubble)
+                                val avatar = BubbleAvatar(
+                                    id = if (isGroup) r.m.senderId ?: r.m.senderName ?: state.chatId else state.chatId,
+                                    name = if (isGroup) r.m.senderName ?: "?" else title,
+                                    url = if (isGroup) null else chat?.avatarUrl,
+                                    show = r.showSender,
+                                )
+                                MessageBubble(r.m, isGroup, r.showSender, state.highlight == r.m.id, maxBubble, avatar = avatar)
                             }
                         }
                     }

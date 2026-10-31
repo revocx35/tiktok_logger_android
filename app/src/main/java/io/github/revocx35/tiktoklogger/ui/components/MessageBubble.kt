@@ -93,9 +93,9 @@ fun SystemPill(text: String, modifier: Modifier = Modifier) {
         Text(
             text,
             style = WaType.small.copy(fontSize = 12.sp),
-            color = c.text2,
             textAlign = TextAlign.Center,
-            modifier = Modifier.shadow(1.dp, RoundedCornerShape(8.dp)).clip(RoundedCornerShape(8.dp)).background(c.system).padding(horizontal = 12.dp, vertical = 5.dp),
+            color = c.muted,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
         )
     }
 }
@@ -211,7 +211,16 @@ private fun WithMeta(meta: @Composable () -> Unit, content: @Composable (metaWid
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun MessageBubble(msg: Message, isGroup: Boolean, showSender: Boolean, highlighted: Boolean, maxBubbleWidth: Dp, modifier: Modifier = Modifier) {
+fun MessageBubble(
+    msg: Message,
+    isGroup: Boolean,
+    showSender: Boolean,
+    highlighted: Boolean,
+    maxBubbleWidth: Dp,
+    modifier: Modifier = Modifier,
+    /** TikTok's chat: the sender's avatar beside incoming messages, drawn on the first of a run (else an empty slot). */
+    avatar: BubbleAvatar? = null,
+) {
     val c = Wa.colors
     val fmt = LocalFormatter.current
     val actions = LocalMessageActions.current
@@ -227,9 +236,12 @@ fun MessageBubble(msg: Message, isGroup: Boolean, showSender: Boolean, highlight
     val deleted = msg.deletedAt != null
     val neverCaptured = false
     val sticker = msg.type == MessageType.Sticker && msg.media?.url != null
-    val shape = RoundedCornerShape(18.dp)
+    val shape = RoundedCornerShape(8.dp)
+    // Photos and videos without a caption or quote sit bare (rounded, no bubble behind them), as in TikTok's chat.
+    val bare = (msg.type == MessageType.Image || msg.type == MessageType.Video) && msg.media?.status == io.github.revocx35.tiktoklogger.core.MediaStatus.Downloaded &&
+        msg.text == null && msg.quoted == null && msg.deletedAt == null
     val bubbleBg = when {
-        sticker -> Color.Transparent
+        sticker || bare -> Color.Transparent
         msg.fromMe -> c.bubbleOut
         else -> c.bubbleIn
     }
@@ -241,18 +253,27 @@ fun MessageBubble(msg: Message, isGroup: Boolean, showSender: Boolean, highlight
     val selection = LocalSelection.current
     val selectable = selection != null && MessageSelection.selectable(msg)
     val selected = selection?.isSelected(msg.id) == true
+    // No time inside the bubble (TikTok writes it between messages); the row keeps "Edited" and the ticks.
+    val hasMeta = msg.edited || msg.fromMe
+    val withAvatar = avatar != null && !msg.fromMe && selection?.active != true
 
-    Column(
+    Row(
         modifier.fillMaxWidth()
             .then(if (selected) Modifier.background(c.accent.copy(alpha = 0.16f)) else Modifier)
             .then(if (selection?.active == true && selectable) Modifier.clickable(onClickLabel = if (selected) "Unselect" else "Select") { selection.toggle(msg) } else Modifier)
-            .padding(vertical = 1.dp),
+            .padding(top = if (showSender) 6.dp else 1.dp, bottom = 1.dp),
+        horizontalArrangement = if (msg.fromMe) Arrangement.End else Arrangement.Start,
+    ) {
+    if (withAvatar) {
+        if (avatar!!.show) Avatar(avatar.id, avatar.name, avatar.url, size = 32.dp) else Spacer(Modifier.width(32.dp))
+        Spacer(Modifier.width(8.dp))
+    }
+    Column(
         horizontalAlignment = if (msg.fromMe) Alignment.End else Alignment.Start,
     ) {
         Box(
             Modifier
                 .widthIn(max = maxBubbleWidth)
-                .then(if (sticker) Modifier else Modifier.shadow(1.dp, shape, ambientColor = c.shadow, spotColor = c.shadow))
                 .then(
                     when {
                         selected -> Modifier.border(3.dp, c.accent, shape)
@@ -274,11 +295,11 @@ fun MessageBubble(msg: Message, isGroup: Boolean, showSender: Boolean, highlight
                         if (selection?.active == true && selectable) selection.toggle(msg) else actions.longPress(msg)
                     },
                 )
-                .padding(start = 12.dp, end = 12.dp, top = 7.dp, bottom = 7.dp),
+                .padding(if (bare) 0.dp else 12.dp, if (bare) 0.dp else 8.dp),
         ) {
             WithMeta(
                 meta = {
-                    Row(Modifier.padding(start = 10.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (hasMeta) Row(Modifier.padding(start = 10.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         if (msg.edited) {
                             LinkButton(
                                 "Edited" + if (msg.editCount > 1) " ×${msg.editCount}" else "",
@@ -288,7 +309,6 @@ fun MessageBubble(msg: Message, isGroup: Boolean, showSender: Boolean, highlight
                                 icon = WaIcons.edit,
                             )
                         }
-                        Text(fmt.time(msg.ts), style = WaType.meta, color = metaColor)
                         if (msg.fromMe) Ticks(msg.ack, onBlue)
                     }
                 },
@@ -370,7 +390,7 @@ fun MessageBubble(msg: Message, isGroup: Boolean, showSender: Boolean, highlight
                             val text = msg.text
                             if (text != null) {
                                 endsWithText = remember(text) { endsWithInlineText(text) }
-                                WaTextView(text, color = fg, trailing = if (endsWithText) trailing else 0.sp)
+                                WaTextView(text, color = fg, trailing = if (endsWithText) trailing else 0.sp, linkColor = if (onBlue) fg else null)
                             }
                             if (msg.type == MessageType.Unknown && text == null) {
                                 Text("Unsupported message type", style = WaType.small.copy(fontStyle = FontStyle.Italic), color = c.muted)
@@ -378,7 +398,7 @@ fun MessageBubble(msg: Message, isGroup: Boolean, showSender: Boolean, highlight
                         }
                     }
                     // Room for the time row when it can't flow into the last line of text.
-                    if (!endsWithText) Spacer(Modifier.height(16.dp))
+                    if (!endsWithText && hasMeta) Spacer(Modifier.height(16.dp))
                 }
             }
         }
@@ -391,7 +411,7 @@ fun MessageBubble(msg: Message, isGroup: Boolean, showSender: Boolean, highlight
                 modifier = Modifier
                     .offset(y = (-4).dp)
                     .padding(horizontal = 8.dp)
-                    .shadow(1.dp, RoundedCornerShape(12.dp))
+                    .border(1.dp, c.border, RoundedCornerShape(12.dp))
                     .clip(RoundedCornerShape(12.dp))
                     .background(c.panel)
                     .clickable(onClickLabel = "Show reactions") { showReactions = true }
@@ -399,6 +419,10 @@ fun MessageBubble(msg: Message, isGroup: Boolean, showSender: Boolean, highlight
             )
         }
     }
+    }
     if (showEdits) EditHistoryDialog(msg) { showEdits = false }
     if (showReactions) ReactionsDialog(msg) { showReactions = false }
 }
+
+/** Who sent an incoming message, for the avatar beside it; [show] on the first message of a run. */
+data class BubbleAvatar(val id: String, val name: String, val url: String?, val show: Boolean)
