@@ -1,7 +1,14 @@
 package io.github.revocx35.tiktoklogger.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.ui.unit.sp
+import androidx.media3.common.C
+import androidx.media3.common.MimeTypes
+import io.github.revocx35.tiktoklogger.media.MediaOps
+import kotlinx.coroutines.delay
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -13,6 +20,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -70,21 +78,27 @@ import io.github.revocx35.tiktoklogger.ui.theme.WaIcons
 import io.github.revocx35.tiktoklogger.ui.theme.WaType
 import kotlinx.coroutines.launch
 
+/** A reply thread opened in the comments: its loaded replies and where the next page starts (null = all there). */
+data class ReplyThread(val replies: List<FeedComment> = emptyList(), val cursor: String? = null, val loading: Boolean = false)
+
+/** What the comment box answers: [top] = the thread's comment, [toReply] = the reply answered inside it. */
+data class ReplyTarget(val top: String, val toReply: String?, val who: String)
+
 /**
- * TikTok's For You, read through the server's browser (the same tab the web UI's Feed uses).
- *
- * The server drives the feed: this screen shows whatever video the server says is on screen and asks it to move,
- * like, comment or close the comments. Videos stream through the server, so the phone never talks to TikTok.
+ * Everything one can do with the video on screen (server v1.15), shared by For You and a profile's videos: like,
+ * repost, follow its author, comments with threads and comment likes, send to a chat. Every action goes to the server,
+ * which does it as the logged-in account; the item shows what TikTok answered, not what was asked.
  */
-class FeedViewModel(private val session: ServerSession) : ViewModel() {
+open class VideoActionsModel(protected val session: ServerSession) : ViewModel() {
     var item by mutableStateOf<FeedItem?>(null)
-        private set
-    var loading by mutableStateOf(false)
-        private set
-    var stepping by mutableStateOf(false)
-        private set
+        protected set
+    /** Bumped when the video changes so the player reloads it. */
+    var generation by mutableStateOf(0)
+        protected set
     var error by mutableStateOf<String?>(null)
-        private set
+        protected set
+    var notice by mutableStateOf<String?>(null)
+        protected set
     var comments by mutableStateOf<List<FeedComment>?>(null)
         private set
     var commentsBusy by mutableStateOf(false)
@@ -93,95 +107,186 @@ class FeedViewModel(private val session: ServerSession) : ViewModel() {
         private set
     var postError by mutableStateOf<String?>(null)
         private set
+    var threads by mutableStateOf<Map<String, ReplyThread>>(emptyMap())
+        private set
+    var replyTo by mutableStateOf<ReplyTarget?>(null)
+        private set
     var chats by mutableStateOf<List<ChatSummary>?>(null)
         private set
     var sendState by mutableStateOf<String?>(null)
         private set
-
-    /** Bumped when the video changes so the player reloads it. */
-    var generation by mutableStateOf(0)
+    var reposting by mutableStateOf(false)
+        private set
+    var following by mutableStateOf(false)
         private set
 
-    fun refresh() {
-        if (loading) return
-        loading = true
-        error = null
-        viewModelScope.launch {
-            try {
-                val res = session.api.feed()
-                item = res.item
-                generation++
-                if (res.item == null) error = "TikTok did not show a video. Try again in a moment."
-            } catch (e: Exception) {
-                error = session.fail("feed", e)
-            } finally {
-                loading = false
-            }
-        }
+    /** Replaces the item on screen; a list-backed model (a profile) mirrors it into its list. */
+    protected open fun update(next: FeedItem) {
+        item = next
     }
 
-    fun step(dir: String) {
-        if (stepping) return
-        stepping = true
-        error = null
-        viewModelScope.launch {
-            try {
-                val res = session.api.feedStep(dir)
-                if (res.item != null) {
-                    item = res.item
-                    comments = null
-                    generation++
-                }
-            } catch (e: Exception) {
-                error = session.fail("feed", e)
-            } finally {
-                stepping = false
-            }
-        }
+    private fun patch(id: String, fn: (FeedItem) -> FeedItem) {
+        val cur = item ?: return
+        if (cur.id == id) update(fn(cur))
+    }
+
+    /** A new video: drop what belonged to the previous one. */
+    protected fun show(next: FeedItem?) {
+        item = next
+        comments = null
+        threads = emptyMap()
+        replyTo = null
+        generation++
+    }
+
+    fun clearNotice() {
+        notice = null
     }
 
     fun toggleLike() {
         val cur = item ?: return
         val want = !cur.liked
-        // Optimistic, then the server's answer wins (it polls TikTok's own control).
-        item = cur.copy(liked = want)
+        // Optimistic, then the server's answer wins (it reads TikTok's own control).
+        patch(cur.id) { it.copy(liked = want, stats = it.stats.copy(likes = it.stats.likes?.let { n -> (n + if (want) 1 else -1).coerceAtLeast(0) })) }
         viewModelScope.launch {
             try {
                 val res = session.api.feedLike(cur.id, want)
-                item = item?.copy(liked = res.liked)
+                patch(cur.id) { it.copy(liked = res.liked) }
             } catch (e: Exception) {
-                item = cur
+                patch(cur.id) { it.copy(liked = cur.liked, stats = cur.stats) }
                 error = session.fail("feed", e)
             }
         }
     }
 
+    fun toggleRepost() {
+        val cur = item ?: return
+        if (reposting) return
+        val want = cur.reposted != true
+        reposting = true
+        notice = if (want) "Reposting…" else "Removing the repost…"
+        viewModelScope.launch {
+            try {
+                val res = session.api.feedRepost(cur.id, want)
+                patch(cur.id) { it.copy(reposted = res.reposted) }
+                notice = if (res.reposted) "Reposted to your followers." else "Repost removed."
+            } catch (e: Exception) {
+                notice = null
+                error = session.fail("feed", e)
+            } finally {
+                reposting = false
+            }
+        }
+    }
+
+    fun toggleFollow() {
+        val cur = item ?: return
+        val who = cur.author.username ?: return
+        if (following) return
+        val want = cur.author.following != true
+        following = true
+        patch(cur.id) { it.copy(author = it.author.copy(following = want)) }
+        viewModelScope.launch {
+            try {
+                val res = session.api.follow(who, want)
+                onFollowChanged(who, res.following)
+                patch(cur.id) { it.copy(author = it.author.copy(following = res.following)) }
+                notice = if (res.following) "Following @$who." else "Unfollowed @$who."
+            } catch (e: Exception) {
+                patch(cur.id) { it.copy(author = it.author.copy(following = cur.author.following)) }
+                error = session.fail("feed", e)
+            } finally {
+                following = false
+            }
+        }
+    }
+
+    /** Other videos of the same author in a list follow the new state. */
+    protected open fun onFollowChanged(username: String, following: Boolean) {}
+
     fun loadComments() {
         val cur = item ?: return
         commentsBusy = true
         postError = null
+        threads = emptyMap()
+        replyTo = null
         viewModelScope.launch {
             try {
                 comments = session.api.feedComments(cur.id).comments
             } catch (e: Exception) {
                 postError = session.fail("feed", e)
+                if (comments == null) comments = emptyList()
             } finally {
                 commentsBusy = false
             }
         }
     }
 
+    fun loadReplies(c: FeedComment) {
+        val cur = item ?: return
+        val th = threads[c.id]
+        if (th?.loading == true) return
+        threads = threads + (c.id to (th ?: ReplyThread()).copy(loading = true))
+        viewModelScope.launch {
+            try {
+                val page = session.api.feedReplies(cur.id, c.id, th?.cursor)
+                val old = th?.replies ?: emptyList()
+                val merged = old + page.comments.filter { n -> old.none { it.id == n.id } }
+                threads = threads + (c.id to ReplyThread(merged, if (page.more) page.cursor else null, false))
+            } catch (e: Exception) {
+                threads = threads + (c.id to (th ?: ReplyThread()).copy(loading = false))
+                postError = session.fail("feed", e)
+            }
+        }
+    }
+
+    private fun setCommentLiked(id: String, liked: Boolean) {
+        fun upd(c: FeedComment): FeedComment =
+            if (c.id == id) c.copy(liked = liked, likes = c.likes?.let { (it + if (liked) 1 else -1).coerceAtLeast(0) }) else c.copy(replies = c.replies.map(::upd))
+        comments = comments?.map(::upd)
+        threads = threads.mapValues { (_, t) -> t.copy(replies = t.replies.map(::upd)) }
+    }
+
+    fun toggleCommentLike(c: FeedComment) {
+        val cur = item ?: return
+        val want = !c.liked
+        setCommentLiked(c.id, want)
+        viewModelScope.launch {
+            try {
+                session.api.feedCommentLike(cur.id, c.id, want)
+            } catch (e: Exception) {
+                setCommentLiked(c.id, !want)
+                postError = session.fail("feed", e)
+            }
+        }
+    }
+
+    fun startReply(top: FeedComment, to: FeedComment?) {
+        val target = to ?: top
+        replyTo = ReplyTarget(top.id, to?.id, target.author.username ?: target.author.name ?: "someone")
+    }
+
+    fun cancelReply() {
+        replyTo = null
+    }
+
     fun post(text: String) {
         val cur = item ?: return
         if (text.isBlank()) return
+        val target = replyTo
         posting = true
         postError = null
         viewModelScope.launch {
             try {
-                comments = session.api.feedComment(cur.id, text.trim()).comments
-                item = item?.copy(stats = (item?.stats ?: io.github.revocx35.tiktoklogger.core.FeedStats()).copy(
-                    comments = (itemsCount(comments) ).toLong(),
-                ))
+                if (target != null) {
+                    val page = session.api.feedReply(cur.id, target.top, text.trim(), target.toReply)
+                    threads = threads + (target.top to ReplyThread(page.comments, if (page.more) page.cursor else null, false))
+                    comments = comments?.map { if (it.id == target.top) it.copy(replyCount = maxOf(it.replyCount ?: 0, page.comments.size.toLong())) else it }
+                    replyTo = null
+                } else {
+                    comments = session.api.feedComment(cur.id, text.trim()).comments
+                    patch(cur.id) { it.copy(stats = it.stats.copy(comments = (it.stats.comments ?: 0) + 1)) }
+                }
             } catch (e: Exception) {
                 postError = session.fail("feed", e)
             } finally {
@@ -190,11 +295,11 @@ class FeedViewModel(private val session: ServerSession) : ViewModel() {
         }
     }
 
-    private fun itemsCount(list: List<FeedComment>?): Int = list?.size ?: 0
-
     fun closeComments() {
         comments = null
         postError = null
+        threads = emptyMap()
+        replyTo = null
         viewModelScope.launch { runCatching { session.api.feedCloseComments() } }
     }
 
@@ -224,6 +329,52 @@ class FeedViewModel(private val session: ServerSession) : ViewModel() {
     }
 }
 
+/**
+ * TikTok's For You, read through the server's browser (the same tab the web UI's Feed uses).
+ *
+ * The server drives the feed: this screen shows whatever video the server says is on screen and asks it to move.
+ * Videos stream through the server, so the phone never talks to TikTok.
+ */
+class FeedViewModel(session: ServerSession) : VideoActionsModel(session) {
+    var loading by mutableStateOf(false)
+        private set
+    var stepping by mutableStateOf(false)
+        private set
+
+    fun refresh() {
+        if (loading) return
+        loading = true
+        error = null
+        viewModelScope.launch {
+            try {
+                val res = session.api.feed()
+                show(res.item)
+                if (res.item == null) error = "TikTok did not show a video. Try again in a moment."
+            } catch (e: Exception) {
+                error = session.fail("feed", e)
+            } finally {
+                loading = false
+            }
+        }
+    }
+
+    fun step(dir: String) {
+        if (stepping) return
+        stepping = true
+        error = null
+        viewModelScope.launch {
+            try {
+                val res = session.api.feedStep(dir)
+                if (res.item != null) show(res.item)
+            } catch (e: Exception) {
+                error = session.fail("feed", e)
+            } finally {
+                stepping = false
+            }
+        }
+    }
+}
+
 private fun compact(n: Long?): String = when {
     n == null -> "—"
     n >= 1_000_000_000 -> String.format("%.1fB", n / 1_000_000_000.0)
@@ -232,9 +383,8 @@ private fun compact(n: Long?): String = when {
     else -> n.toString()
 }
 
-@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
-fun FeedScreen(vm: FeedViewModel, session: ServerSession, connected: Boolean, prefs: Prefs) {
+fun FeedScreen(vm: FeedViewModel, session: ServerSession, connected: Boolean, prefs: Prefs, onOpenProfile: (String) -> Unit = {}) {
     if (!connected) {
         Box(Modifier.fillMaxSize().padding(28.dp), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -250,10 +400,60 @@ fun FeedScreen(vm: FeedViewModel, session: ServerSession, connected: Boolean, pr
 
     LaunchedEffect(Unit) { if (vm.item == null && !vm.loading) vm.refresh() }
 
+    VideoPane(
+        vm = vm,
+        session = session,
+        prefs = prefs,
+        stepping = vm.stepping,
+        onStep = vm::step,
+        onOpenProfile = onOpenProfile,
+        onRefresh = vm::refresh,
+        empty = {
+            if (vm.loading || vm.stepping) Spinner(32.dp)
+            ErrorNote(vm.error)
+            if (!vm.loading) WaButton("Load the feed", { vm.refresh() })
+        },
+    )
+}
+
+private fun clock(ms: Long): String {
+    if (ms <= 0) return "0:00"
+    val s = ms / 1000
+    return "${s / 60}:${(s % 60).toString().padStart(2, '0')}"
+}
+
+/** TikTok's speed steps. */
+private val SPEEDS = listOf(1f, 1.5f, 2f, 0.5f, 0.75f)
+
+/**
+ * One video full screen with TikTok's controls (server v1.15): the action column (author → profile, follow badge,
+ * like, comments, repost, send, save to the gallery, fit/fill, sound), the player row (play/pause, seek bar, speed,
+ * TikTok's captions) and swipes/arrows for the next one. For You and a profile's videos both use it.
+ */
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+@Composable
+fun VideoPane(
+    vm: VideoActionsModel,
+    session: ServerSession,
+    prefs: Prefs,
+    stepping: Boolean,
+    onStep: (String) -> Unit,
+    onOpenProfile: (String) -> Unit,
+    onRefresh: (() -> Unit)? = null,
+    onClose: (() -> Unit)? = null,
+    empty: @Composable () -> Unit = {},
+) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val player = remember(session) { buildPlayer(context, session.api.http).apply { repeatMode = Player.REPEAT_MODE_ONE } }
     var muted by remember { mutableStateOf(true) }
     var sending by remember { mutableStateOf(false) }
+    var speed by remember { mutableStateOf(1f) }
+    var captions by remember { mutableStateOf(false) }
+    var position by remember { mutableStateOf(0L) }
+    var duration by remember { mutableStateOf(0L) }
+    var playing by remember { mutableStateOf(true) }
+    var seekTo by remember { mutableStateOf<Float?>(null) }
     // Whole frame ("fit") or cropped to the screen ("fill"). Remembered across app restarts in Prefs.
     var fit by remember(prefs) { mutableStateOf(prefs.feedFitVideo) }
 
@@ -265,16 +465,34 @@ fun FeedScreen(vm: FeedViewModel, session: ServerSession, connected: Boolean, pr
         onDispose { lifecycle.removeObserver(obs) }
     }
     LaunchedEffect(muted) { player.volume = if (muted) 0f else 1f }
+    LaunchedEffect(speed) { player.setPlaybackSpeed(speed) }
+    LaunchedEffect(captions) {
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !captions).build()
+    }
 
     val item = vm.item
-    LaunchedEffect(item?.id, item?.video?.src) {
+    LaunchedEffect(item?.id, item?.video?.src, vm.generation) {
         val src = item?.video?.src?.let { session.mediaUrl(it) }
         if (src != null && item?.video?.src != null) {
-            player.setMediaItem(MediaItem.fromUri(src))
+            // TikTok's own captions ride along as side-loaded WebVTT; the text track is switched off until asked for.
+            val subs = (item.video?.captions ?: emptyList()).mapNotNull { t ->
+                session.mediaUrl(t.src)?.let { u ->
+                    MediaItem.SubtitleConfiguration.Builder(android.net.Uri.parse(u)).setMimeType(MimeTypes.TEXT_VTT).setLanguage(t.lang.take(2).lowercase()).setLabel(t.lang).build()
+                }
+            }
+            player.setMediaItem(MediaItem.Builder().setUri(src).setSubtitleConfigurations(subs).build())
             player.prepare()
             player.playWhenReady = true
         } else {
             player.stop()
+        }
+    }
+    LaunchedEffect(player) {
+        while (true) {
+            if (seekTo == null) position = player.currentPosition
+            duration = player.duration.takeIf { it > 0 } ?: 0L
+            playing = player.playWhenReady
+            delay(250)
         }
     }
 
@@ -284,11 +502,7 @@ fun FeedScreen(vm: FeedViewModel, session: ServerSession, connected: Boolean, pr
                 Modifier.fillMaxSize().padding(24.dp),
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                if (vm.loading || vm.stepping) Spinner(32.dp)
-                ErrorNote(vm.error)
-                if (!vm.loading) WaButton("Load the feed", { vm.refresh() })
-            }
+            ) { empty() }
         } else {
             val poster = item.video?.poster?.let { session.mediaUrl(it) }
             if (item.video?.src != null) {
@@ -312,7 +526,7 @@ fun FeedScreen(vm: FeedViewModel, session: ServerSession, connected: Boolean, pr
                 AsyncImage(poster, null, imageLoader = session.imageLoader, contentScale = feedContentScale(fit), modifier = Modifier.fillMaxSize())
             }
 
-            // Tap: play/pause. Swipe up/down: next/previous video (TikTok's own order, driven by the server).
+            // Tap: play/pause. Swipe up/down: next/previous video.
             Box(
                 Modifier.fillMaxSize().pointerInput(item.id) {
                     detectTapGestures(onTap = { player.playWhenReady = !player.playWhenReady })
@@ -325,8 +539,8 @@ fun FeedScreen(vm: FeedViewModel, session: ServerSession, connected: Boolean, pr
                         onDragStart = { dragAccum = 0f },
                         onDragEnd = {
                             when {
-                                dragAccum < -140f -> vm.step("next")
-                                dragAccum > 140f -> vm.step("prev")
+                                dragAccum < -140f -> onStep("next")
+                                dragAccum > 140f -> onStep("prev")
                             }
                             dragAccum = 0f
                         },
@@ -334,14 +548,19 @@ fun FeedScreen(vm: FeedViewModel, session: ServerSession, connected: Boolean, pr
                     )
                 },
             )
+            if (!playing && item.video?.src != null) {
+                Box(Modifier.align(Alignment.Center).size(84.dp).clip(CircleShape).background(Color(0x55000000)).clickable { player.playWhenReady = true }, contentAlignment = Alignment.Center) {
+                    androidx.compose.material3.Icon(WaIcons.play, "Play", tint = Color.White, modifier = Modifier.size(44.dp))
+                }
+            }
 
-            // Author, caption and music over a gradient at the bottom.
+            // Author, caption, music and the player row over a gradient at the bottom.
             Column(
                 Modifier
                     .align(Alignment.BottomStart)
                     .fillMaxWidth()
                     .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xB3000000))))
-                    .padding(start = 14.dp, end = 76.dp, top = 56.dp, bottom = 18.dp),
+                    .padding(start = 14.dp, end = 76.dp, top = 56.dp, bottom = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 Text(
@@ -349,6 +568,7 @@ fun FeedScreen(vm: FeedViewModel, session: ServerSession, connected: Boolean, pr
                     color = Color.White,
                     style = WaType.chatName,
                     fontWeight = FontWeight.Bold,
+                    modifier = Modifier.clickable(enabled = item.author.username != null) { item.author.username?.let(onOpenProfile) },
                 )
                 item.caption?.takeIf { it.isNotBlank() }?.let {
                     Text(it, color = Color.White, style = WaType.base, maxLines = 4, overflow = TextOverflow.Ellipsis)
@@ -361,9 +581,26 @@ fun FeedScreen(vm: FeedViewModel, session: ServerSession, connected: Boolean, pr
                     color = Color(0xFFBBBBBB),
                     style = WaType.small,
                 )
+                if (item.video?.src != null) {
+                    FeedPlayerRow(
+                        playing = playing,
+                        position = seekTo?.toLong() ?: position,
+                        duration = duration,
+                        speed = speed,
+                        hasCaptions = (item.video?.captions?.isNotEmpty() == true),
+                        captions = captions,
+                        onPlayPause = { player.playWhenReady = !player.playWhenReady },
+                        onSeek = { seekTo = it },
+                        onSeekDone = {
+                            seekTo?.let { player.seekTo(it.toLong()) }
+                            seekTo = null
+                        },
+                        onSpeed = { speed = SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.size] },
+                        onCaptions = { captions = !captions },
+                    )
+                }
             }
 
-            // Right rail: like, comments, send, resize (fit/fill), mute, refresh.
             FeedActionRail(
                 likes = item.stats.likes,
                 commentsCount = item.stats.comments,
@@ -382,33 +619,110 @@ fun FeedScreen(vm: FeedViewModel, session: ServerSession, connected: Boolean, pr
                     prefs.feedFitVideo = fit
                 },
                 onToggleMute = { muted = !muted },
-                onRefresh = { vm.refresh() },
+                onRefresh = null,
                 modifier = Modifier.align(Alignment.BottomEnd).padding(end = 8.dp, bottom = 18.dp),
                 author = item.author,
+                reposted = item.reposted == true,
+                canRepost = item.canRepost,
+                reposting = vm.reposting,
+                onRepost = { vm.toggleRepost() },
+                onSave = if (item.video?.download != null) ({ scope.launch { MediaOps.saveFeedVideoToGallery(context, session.api, item) } }) else null,
+                onAuthor = item.author.username?.let { u -> { onOpenProfile(u) } },
+                onFollow = if (item.author.username != null && item.author.following != null) ({ vm.toggleFollow() }) else null,
             )
 
-            // Up/down arrows: same as swiping, easier with one hand.
+            // Top bar: close (a profile's videos) or refresh (For You) on the left, up/down on the right.
+            Row(Modifier.align(Alignment.TopStart).padding(top = 12.dp, start = 10.dp)) {
+                if (onClose != null) {
+                    FeedTopButton(WaIcons.close, "Close", onClose)
+                } else if (onRefresh != null) {
+                    FeedTopButton(WaIcons.refresh, "Refresh the feed", onRefresh)
+                }
+            }
             Column(
-                Modifier.align(Alignment.TopEnd).padding(top = 60.dp, end = 10.dp),
+                Modifier.align(Alignment.TopEnd).padding(top = 12.dp, end = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                FeedArrow("↑", enabled = !vm.stepping) { vm.step("prev") }
-                FeedArrow("↓", enabled = !vm.stepping) { vm.step("next") }
+                FeedArrow("↑", enabled = !stepping) { onStep("prev") }
+                FeedArrow("↓", enabled = !stepping) { onStep("next") }
             }
 
-            if (vm.stepping) {
+            if (stepping) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Spinner(34.dp) }
             }
-            ErrorNote(vm.error, Modifier.align(Alignment.TopCenter).padding(top = 70.dp, start = 16.dp, end = 16.dp))
+            Column(Modifier.align(Alignment.TopCenter).padding(top = 60.dp, start = 16.dp, end = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                ErrorNote(vm.error)
+                vm.notice?.let { n ->
+                    LaunchedEffect(n) {
+                        delay(2600)
+                        vm.clearNotice()
+                    }
+                    Text(n, color = Color.White, style = WaType.small, modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(Color(0xAA000000)).padding(horizontal = 12.dp, vertical = 6.dp))
+                }
+            }
         }
     }
 
     val comments = vm.comments
     if (comments != null) {
-        CommentsDialog(comments, vm.posting, vm.postError, vm::post) { vm.closeComments() }
+        CommentsDialog(vm, comments, onOpenProfile) { vm.closeComments() }
     }
     if (sending) {
         SendDialog(vm.chats, vm.sendState, vm::send) { if (vm.sendState == null) sending = false else vm.clearSendState() }
+    }
+}
+
+@Composable
+private fun FeedTopButton(icon: androidx.compose.ui.graphics.vector.ImageVector, description: String, onClick: () -> Unit) {
+    Box(Modifier.size(38.dp).clip(CircleShape).background(Color(0x30FFFFFF)), contentAlignment = Alignment.Center) {
+        IconBtn(icon, description, onClick, size = 38.dp, iconSize = 20.dp, tint = Color.White)
+    }
+}
+
+/** Play/pause, the seek bar with the time, the speed step and TikTok's captions (when it made some). */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+internal fun FeedPlayerRow(
+    playing: Boolean,
+    position: Long,
+    duration: Long,
+    speed: Float,
+    hasCaptions: Boolean,
+    captions: Boolean,
+    onPlayPause: () -> Unit,
+    onSeek: (Float) -> Unit,
+    onSeekDone: () -> Unit,
+    onSpeed: () -> Unit,
+    onCaptions: () -> Unit,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        IconBtn(if (playing) WaIcons.pause else WaIcons.play, if (playing) "Pause" else "Play", onPlayPause, size = 30.dp, iconSize = 16.dp, tint = Color.White)
+        Slider(
+            value = position.toFloat().coerceIn(0f, duration.toFloat().coerceAtLeast(0f)),
+            onValueChange = onSeek,
+            onValueChangeFinished = onSeekDone,
+            valueRange = 0f..duration.toFloat().coerceAtLeast(1f),
+            enabled = duration > 0,
+            colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Color.White, inactiveTrackColor = Color(0x55FFFFFF)),
+            // TikTok's seek bar: a thin white line and a small round thumb (not Material's pill and gap).
+            thumb = { Box(Modifier.size(12.dp).clip(CircleShape).background(Color.White)) },
+            track = { st ->
+                val frac = if (st.valueRange.endInclusive > st.valueRange.start) (st.value - st.valueRange.start) / (st.valueRange.endInclusive - st.valueRange.start) else 0f
+                Box(Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(2.dp)).background(Color(0x55FFFFFF))) {
+                    Box(Modifier.fillMaxWidth(frac.coerceIn(0f, 1f)).height(3.dp).background(Color.White))
+                }
+            },
+            modifier = Modifier.weight(1f).heightIn(max = 28.dp),
+        )
+        Text("${clock(position)} / ${clock(duration)}", color = Color(0xDDFFFFFF), style = WaType.tiny)
+        Box(
+            Modifier.clip(RoundedCornerShape(6.dp)).background(Color(0x30FFFFFF)).clickable(onClick = onSpeed).padding(horizontal = 7.dp, vertical = 4.dp),
+        ) {
+            Text("${if (speed % 1f == 0f) speed.toInt().toString() else speed.toString()}×", color = Color.White, style = WaType.tiny, fontWeight = FontWeight.Bold)
+        }
+        if (hasCaptions) {
+            IconBtn(WaIcons.captions, if (captions) "Hide captions" else "Show captions", onCaptions, size = 30.dp, iconSize = 18.dp, tint = if (captions) Color.White else Color(0x99FFFFFF), active = captions)
+        }
     }
 }
 
@@ -428,21 +742,58 @@ internal fun FeedActionRail(
     onSend: () -> Unit,
     onToggleFit: () -> Unit,
     onToggleMute: () -> Unit,
-    onRefresh: () -> Unit,
+    onRefresh: (() -> Unit)?,
     modifier: Modifier = Modifier,
     /** TikTok puts the author's avatar on top of the column. */
     author: io.github.revocx35.tiktoklogger.core.FeedAuthor? = null,
+    reposted: Boolean = false,
+    /** The repost entry shows only when the video allows it (and the caller handles it). */
+    canRepost: Boolean = false,
+    reposting: Boolean = false,
+    onRepost: (() -> Unit)? = null,
+    onSave: (() -> Unit)? = null,
+    onAuthor: (() -> Unit)? = null,
+    /** TikTok's follow badge under the avatar: "+" to follow, a check once followed. */
+    onFollow: (() -> Unit)? = null,
 ) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         if (author != null) {
-            Box(Modifier.padding(bottom = 6.dp).size(48.dp).border(1.dp, Color.White, CircleShape).padding(1.dp), contentAlignment = Alignment.Center) {
-                io.github.revocx35.tiktoklogger.ui.components.Avatar(author.username ?: "tiktok", author.name ?: author.username ?: "?", author.avatar, size = 46.dp)
+            Box(Modifier.padding(bottom = 10.dp), contentAlignment = Alignment.TopCenter) {
+                Box(
+                    Modifier.size(48.dp).border(1.dp, Color.White, CircleShape).padding(1.dp).clip(CircleShape).clickable(enabled = onAuthor != null) { onAuthor?.invoke() },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    io.github.revocx35.tiktoklogger.ui.components.Avatar(author.username ?: "tiktok", author.name ?: author.username ?: "?", author.avatar, size = 46.dp)
+                }
+                if (onFollow != null) {
+                    val on = author.following == true
+                    Box(
+                        Modifier
+                            .padding(top = 38.dp)
+                            .size(22.dp)
+                            .clip(CircleShape)
+                            .background(if (on) Color.White else Color(0xFFFE2C55))
+                            .clickable(onClick = onFollow),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        androidx.compose.material3.Icon(
+                            if (on) WaIcons.check else WaIcons.plus,
+                            if (on) "Unfollow @${author.username}" else "Follow @${author.username}",
+                            tint = if (on) Color(0xFFFE2C55) else Color.White,
+                            modifier = Modifier.size(14.dp),
+                        )
+                    }
+                }
             }
         }
         // TikTok's solid icons with bold counts underneath.
         FeedAction(WaIcons.heartFill, compact(likes), liked, if (liked) Color(0xFFFE2C55) else Color.White, onLike, "Like")
         FeedAction(WaIcons.commentFill, compact(commentsCount), false, Color.White, onComments, "Comments")
+        if (canRepost && onRepost != null) {
+            FeedAction(WaIcons.repost, if (reposted) "Reposted" else "Repost", reposted, if (reposted) Color(0xFFFFC300) else Color.White, { if (!reposting) onRepost() }, if (reposted) "Remove repost" else "Repost")
+        }
         FeedAction(WaIcons.shareArrow, "Share", false, Color.White, onSend, "Send this video to a chat")
+        if (onSave != null) FeedAction(WaIcons.download, "Save", false, Color.White, onSave, "Save the video to the gallery")
         FeedAction(
             icon = if (fit) WaIcons.fillScreen else WaIcons.fitScreen,
             label = if (fit) "Fill" else "Fit",
@@ -452,7 +803,7 @@ internal fun FeedActionRail(
             description = if (fit) "Fill the screen" else "Fit the whole video on the screen",
         )
         FeedAction(WaIcons.mute, if (muted) "Sound" else "Mute", muted, Color.White, onToggleMute, if (muted) "Turn the sound on" else "Mute")
-        FeedAction(WaIcons.refresh, "", false, Color.White, onRefresh, "Refresh the feed")
+        if (onRefresh != null) FeedAction(WaIcons.refresh, "", false, Color.White, onRefresh, "Refresh the feed")
     }
 }
 
@@ -474,7 +825,7 @@ private fun FeedAction(
     description: String = label,
 ) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        IconBtn(icon, description, onClick, size = 44.dp, iconSize = 30.dp, tint = tint, active = active)
+        IconBtn(icon, description, onClick, size = 42.dp, iconSize = 28.dp, tint = tint, active = active)
         if (label.isNotEmpty()) {
             Text(
                 label,
@@ -502,47 +853,65 @@ private fun FeedArrow(symbol: String, enabled: Boolean, onClick: () -> Unit) {
     }
 }
 
+/** Comments with TikTok's threads: like a comment, "View N replies", reply to a comment or to a reply inside it. */
 @Composable
-private fun CommentsDialog(
-    comments: List<FeedComment>,
-    posting: Boolean,
-    error: String?,
-    onPost: (String) -> Unit,
-    onClose: () -> Unit,
-) {
+private fun CommentsDialog(vm: VideoActionsModel, comments: List<FeedComment>, onOpenProfile: (String) -> Unit, onClose: () -> Unit) {
     var text by remember { mutableStateOf("") }
-    val scope = rememberCoroutineScope()
+    val target = vm.replyTo
     WaDialog("Comments", onClose) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (comments.isEmpty()) MutedText("No comments yet.")
+            if (vm.commentsBusy) Spinner()
+            if (!vm.commentsBusy && comments.isEmpty()) MutedText("No comments yet.")
             Column(
                 Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 comments.forEach { c ->
-                    CommentRow(c, 0)
-                    c.replies.forEach { r -> CommentRow(r, 1) }
+                    CommentRow(c, 0, { vm.toggleCommentLike(c) }, { vm.startReply(c, null) }, onOpenProfile)
+                    val th = vm.threads[c.id]
+                    val replies = th?.replies ?: c.replies
+                    replies.forEach { r -> CommentRow(r, 1, { vm.toggleCommentLike(r) }, { vm.startReply(c, r) }, onOpenProfile) }
+                    val total = c.replyCount ?: c.replies.size.toLong()
+                    val left = if (th != null) (if (th.cursor != null) maxOf(1, total - th.replies.size) else 0) else maxOf(0, total - c.replies.size)
+                    if (left > 0 || th?.loading == true) {
+                        Text(
+                            if (th?.loading == true) "Loading…" else if (th != null) "View more replies" else "View ${compact(left)} ${if (left == 1L) "reply" else "replies"}",
+                            color = Wa.colors.muted,
+                            style = WaType.small,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(start = 36.dp).clickable(enabled = th?.loading != true) { vm.loadReplies(c) },
+                        )
+                    }
                 }
             }
-            ErrorNote(error)
+            ErrorNote(vm.postError)
+            if (target != null) {
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp)).background(Wa.colors.panel).padding(horizontal = 10.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    MutedText("Replying to @${target.who}", Modifier.weight(1f), style = WaType.small)
+                    IconBtn(WaIcons.close, "Cancel reply", { vm.cancelReply() }, size = 28.dp, iconSize = 14.dp)
+                }
+            }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Box(Modifier.weight(1f)) {
-                    WaTextField(text, { text = it }, null, placeholder = "Add a comment…", singleLine = true)
+                    WaTextField(text, { text = it.take(150) }, null, placeholder = if (target != null) "Reply to @${target.who}…" else "Add a comment…", singleLine = true)
                 }
                 WaButton("Post", {
                     val t = text
                     text = ""
-                    scope.launch { onPost(t) }
-                }, enabled = text.isNotBlank() && !posting, busy = posting, style = io.github.revocx35.tiktoklogger.ui.components.BtnStyle.Primary)
+                    vm.post(t)
+                }, enabled = text.isNotBlank() && !vm.posting, busy = vm.posting, style = io.github.revocx35.tiktoklogger.ui.components.BtnStyle.Primary)
             }
         }
     }
 }
 
 @Composable
-private fun CommentRow(c: FeedComment, depth: Int) {
+private fun CommentRow(c: FeedComment, depth: Int, onLike: () -> Unit, onReply: () -> Unit, onOpenProfile: (String) -> Unit) {
     Row(
-        Modifier.fillMaxWidth().padding(start = (depth * 18).dp),
+        Modifier.fillMaxWidth().padding(start = (depth * 22).dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.Top,
     ) {
@@ -552,11 +921,14 @@ private fun CommentRow(c: FeedComment, depth: Int) {
                 color = Wa.colors.text2,
                 style = WaType.small,
                 fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.clickable(enabled = c.author.username != null) { c.author.username?.let(onOpenProfile) },
             )
             Text(c.text, style = WaType.base)
+            Text("Reply", color = Wa.colors.muted, style = WaType.tiny, fontWeight = FontWeight.SemiBold, modifier = Modifier.clickable(onClick = onReply).padding(vertical = 2.dp))
         }
-        if ((c.likes ?: 0) > 0) {
-            Text(compact(c.likes), color = Wa.colors.text2, style = WaType.small)
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            IconBtn(if (c.liked) WaIcons.heartFill else WaIcons.heart, if (c.liked) "Unlike" else "Like", onLike, size = 30.dp, iconSize = 16.dp, tint = if (c.liked) Color(0xFFFE2C55) else Wa.colors.muted)
+            if ((c.likes ?: 0) > 0) Text(compact(c.likes), color = Wa.colors.text2, style = WaType.tiny)
         }
     }
 }

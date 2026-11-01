@@ -21,6 +21,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.runtime.collectAsState
+import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.unit.dp
 import com.github.takahirom.roborazzi.captureRoboImage
 import io.github.revocx35.tiktoklogger.core.ChatSummary
@@ -44,6 +45,9 @@ import io.github.revocx35.tiktoklogger.ui.screens.ChatState
 import io.github.revocx35.tiktoklogger.ui.screens.DeletedScreen
 import io.github.revocx35.tiktoklogger.ui.screens.DeletedState
 import io.github.revocx35.tiktoklogger.ui.screens.LoginScreen
+import io.github.revocx35.tiktoklogger.ui.screens.ProfileContent
+import io.github.revocx35.tiktoklogger.ui.screens.FeedActionRail
+import io.github.revocx35.tiktoklogger.ui.screens.FeedPlayerRow
 import io.github.revocx35.tiktoklogger.ui.screens.LoginStep
 import io.github.revocx35.tiktoklogger.ui.screens.AdminDeps
 import io.github.revocx35.tiktoklogger.ui.screens.AdminPage
@@ -209,6 +213,59 @@ class ScreenshotTest {
         Column(Modifier.fillMaxSize()) {
             Box(Modifier.weight(1f)) { SearchScreen("plan", {}, SearchResponse(SampleData.hits, false), null, false, {}, { _, _ -> }) }
             BottomRail(Tab.Search, SampleData.ready, false, false, {}) {}
+        }
+    }
+
+    private val sampleProfile = io.github.revocx35.tiktoklogger.core.TtProfile(
+        id = "1",
+        username = "creator",
+        name = "Creator Name",
+        bio = "Photographer · Istanbul\nNew video every Friday",
+        link = "https://example.com/me",
+        verified = true,
+        following = false,
+        stats = io.github.revocx35.tiktoklogger.core.ProfileStats(followers = 1_530_000, following = 210, likes = 42_000_000, videos = 312),
+        tabs = listOf("videos", "reposts"),
+        url = "https://www.tiktok.com/@creator",
+    )
+    private val sampleVideos = (1..9).map {
+        io.github.revocx35.tiktoklogger.core.FeedItem(id = "76$it", stats = io.github.revocx35.tiktoklogger.core.FeedStats(plays = 1_200_000L + it))
+    }
+
+    /** v1.15: someone's profile — header, follow button, stats, bio, the Videos/Reposts tabs and the grid. */
+    @Test
+    fun phoneProfile() = shot("phone_profile") {
+        Column(Modifier.fillMaxSize()) {
+            Box(Modifier.weight(1f)) {
+                ProfileContent(sampleProfile, sampleVideos, "videos", false, false, null, false, { null }, null, {}, {}, {}, {}, {})
+            }
+            BottomRail(Tab.Profile, SampleData.ready, false, false, {}) {}
+        }
+    }
+
+    /** The owner's own profile has all four lists and no follow button. */
+    @Test
+    fun phoneMyProfileDark() = shot("phone_profile_me_dark", dark = true) {
+        ProfileContent(
+            sampleProfile.copy(username = "owner.account", me = true, following = null, verified = false, tabs = listOf("videos", "reposts", "liked", "favorites")),
+            sampleVideos.take(5), "liked", false, false, null, false, { null }, null, null, {}, {}, {}, {},
+        )
+    }
+
+    /** v1.15 feed controls: follow badge, repost, save, and the player row (seek, speed, captions). */
+    @Test
+    fun phoneFeedControls() = shot("phone_feed_controls") {
+        Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black)) {
+            FeedActionRail(
+                likes = 12_300, commentsCount = 456, liked = true, muted = true, fit = false,
+                onLike = {}, onComments = {}, onSend = {}, onToggleFit = {}, onToggleMute = {}, onRefresh = null,
+                modifier = Modifier.align(androidx.compose.ui.Alignment.BottomEnd).padding(end = 8.dp, bottom = 90.dp),
+                author = io.github.revocx35.tiktoklogger.core.FeedAuthor("creator", "Creator", null, following = false),
+                reposted = true, canRepost = true, onRepost = {}, onSave = {}, onAuthor = {}, onFollow = {},
+            )
+            Box(Modifier.align(androidx.compose.ui.Alignment.BottomStart).padding(start = 14.dp, end = 76.dp, bottom = 20.dp)) {
+                FeedPlayerRow(true, 12_000, 47_000, 1.5f, true, true, {}, {}, {}, {}, {})
+            }
         }
     }
 

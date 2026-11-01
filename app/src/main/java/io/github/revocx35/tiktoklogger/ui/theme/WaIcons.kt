@@ -79,6 +79,10 @@ object WaIcons {
     val emoji: ImageVector by lazy { stroke("emoji", "M12 3a9 9 0 1 1 0 18 9 9 0 0 1 0-18z", "M8.5 14.5a4.5 4.5 0 0 0 7 0", "M9 9.5h.01", "M15 9.5h.01") }
     val shieldFill: ImageVector by lazy { solid("shieldFill", "M12 2 4 5v6c0 5 3.4 9.7 8 11 4.6-1.3 8-6 8-11V5l-8-3zm-1 13.6-3.6-3.6L8.8 10.6l2.2 2.2 4.2-4.2 1.4 1.4-5.6 5.6z") }
     val verified: ImageVector by lazy { solid("verified", "M12 1.8l2.5 1.9 3.1-.2.9 3 2.6 1.8-1 3 1 2.9-2.6 1.8-.9 3-3.1-.2L12 22.2l-2.5-1.9-3.1.2-.9-3-2.6-1.8 1-2.9-1-3 2.6-1.8.9-3 3.1.2zm-1.2 13.6 5.5-5.6-1.3-1.3-4.2 4.3-2.2-2.2-1.3 1.3z") }
+    val repost: ImageVector by lazy { stroke("repost", "M17 2.5l3.5 3.5L17 9.5", "M3.5 11.5V10a4 4 0 0 1 4-4h13", "M7 21.5 3.5 18 7 14.5", "M20.5 12.5V14a4 4 0 0 1-4 4h-13") }
+    val captions: ImageVector by lazy { stroke("captions", "M4 5h16a1.5 1.5 0 0 1 1.5 1.5v11A1.5 1.5 0 0 1 20 19H4a1.5 1.5 0 0 1-1.5-1.5v-11A1.5 1.5 0 0 1 4 5z", "M10.5 10.2a2.3 2.3 0 1 0 0 3.6", "M17 10.2a2.3 2.3 0 1 0 0 3.6") }
+    val grid: ImageVector by lazy { stroke("grid", "M4 4h6.5v6.5H4z", "M13.5 4H20v6.5h-6.5z", "M4 13.5h6.5V20H4z", "M13.5 13.5H20V20h-6.5z") }
+    val speed: ImageVector by lazy { stroke("speed", "M12 4a9 9 0 0 1 9 9c0 2-.6 3.8-1.7 5.3H4.7A9 9 0 0 1 12 4z", "M12 13l4-4") }
 
     // Native-only extras (solid).
     val pin: ImageVector by lazy { solid("pin", "M12 2a7 7 0 0 1 7 7c0 5-7 13-7 13S5 14 5 9a7 7 0 0 1 7-7zm0 4a3 3 0 1 0 0 6 3 3 0 0 0 0-6z") }

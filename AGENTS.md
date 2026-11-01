@@ -11,7 +11,7 @@ Read [ARCHITECTURE.md](ARCHITECTURE.md) (modules, flows, the *Look* section) and
 | `core/` | Kotlin/JVM, no Android: `ApiClient` (OkHttp + kotlinx-serialization, `Origin` + `X-CSRF-Token` on every call), `Models.kt` (mirror of the server's `shared/api.d.ts`), `EventStream` (SSE), `Authentik` (OAuth2 + PKCE interceptor), `vnc/` (RFB client) |
 | `app/src/main/java/.../data/` | `AppGraph` (pinned OkHttp per account), `SecureCookieJar` (Keystore AES-GCM), `ServerTrust`, `AuthentikSignIn`, `AppController` (accounts, state, events), `Prefs` |
 | `app/src/main/java/.../ui/MainShell.kt` | Navigation: TikTok tab bar (phones), icon sidebar (wide), Profile/More sheet, routes |
-| `app/src/main/java/.../ui/screens/` | Chats (inbox + chat), Feed (For You), Stories, Pages (Unsent, Search), TikTok (VNC), Settings, Admin, Auth, Accounts, Server |
+| `app/src/main/java/.../ui/screens/` | Chats (inbox + chat), Feed (For You; `VideoActionsModel` + `VideoPane` are shared with profiles), Profile (0.6.0), Stories, Pages (Unsent, Search), TikTok (VNC), Settings, Admin, Auth, Accounts, Server |
 | `app/src/main/java/.../ui/components/` | `MessageBubble`, `Composer`, `MessageMedia`, `Avatar`, `WaTextView`, shared `Components.kt` (buttons, fields, chips, search box, `BrandMark`) |
 | `app/src/main/java/.../ui/theme/` | `Theme.kt` (colour tokens + type scale = the web's `styles.css`), `WaIcons.kt` (generated from the web's `Icon.tsx`) |
 | `app/src/main/res/font/` | TikTok Sans TTFs (OFL, `third_party/TikTokSans-OFL.txt`) |
@@ -22,7 +22,7 @@ Read [ARCHITECTURE.md](ARCHITECTURE.md) (modules, flows, the *Look* section) and
 
 ```bash
 echo "sdk.dir=/opt/android-sdk" > local.properties          # on CT 105; local.properties is gitignored
-/usr/local/bin/heavy ./gradlew :core:test :app:testDebugUnitTest --max-workers=1   # 34 core + 38 app tests
+/usr/local/bin/heavy ./gradlew :core:test :app:testDebugUnitTest --max-workers=1   # 35 core + 41 app tests
 /usr/local/bin/heavy ./gradlew :app:recordRoborazziDebug --max-workers=1           # renders app/build/screenshots/*.png
 /usr/local/bin/heavy ./gradlew :app:lintDebug :app:assembleDebug --max-workers=1
 ```
@@ -53,6 +53,9 @@ release workflow signs with the `KEYSTORE_*` secrets and attaches the APK. There
 - The phone tab bar has room for five slots; anything else goes into the Profile sheet (`MoreSheet`).
 - `MessageBubble` has no time inside: the chat list (`ChatPane`) inserts centred day/time rows instead; incoming
   bubbles get a `BubbleAvatar` (shown on the first of a run). Selection mode hides the avatars.
-- `FeedActionRail`'s parameters are used by `FeedResizeTest`; keep new ones optional.
+- `FeedActionRail`'s parameters are used by `FeedResizeTest` and `ScreenshotTest`; keep new ones optional.
+- `VideoPane` owns its ExoPlayer (released on dispose): a profile's viewer and For You never share one.
+- New chat, chat actions (mute/pin/delete/block), groups and stickers are not in the server yet (waiting for live tests
+  with the owner's alt account) — do not add UI for them before the server routes exist.
 - Screenshots of the real feed: `screencap` is black for `PlayerView` (SurfaceView) and while FLAG_SECURE is on — see
   ARCHITECTURE "Checking the feed without a TikTok account".

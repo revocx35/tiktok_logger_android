@@ -35,8 +35,11 @@ Through the same server API as the web UI (`shared/api.d.ts` of tiktok_logger):
 - **Feed:** TikTok's For You as the server sees it — one video at a time, swipe up/down (or the arrows) to move, tap to
   pause, ♥ to like/unlike, comments (with their replies) and **Send**, which puts the video's link into one of your
   chats, and a **Fit / Fill** button next to them that switches between the whole video with black bars and a video
-  cropped to the screen (the choice is remembered). Playback is streamed through the server; nothing of the feed is
-  stored.
+  cropped to the screen (the choice is remembered). Since 0.6.0 also **repost**, **follow** the author (the badge under
+  the avatar), comment **threads** with replies and comment likes, **Save** to the gallery, and a player row with a seek
+  bar, speed and TikTok's captions. Playback is streamed through the server; nothing of the feed is stored.
+- **Profile** (0.6.0, needs server 1.15): your own account — videos, reposts, favorites, liked — and anyone's (tap an
+  author or a commenter): header, follow button, stats, bio and a grid; a tile plays the list in the same player.
 - **Stories:** the stories the server logged for the accounts you follow — a row of accounts with their story counts, a
   grid of photos and videos, a full-screen viewer (swipe between them, videos play once, photos hold five seconds), and a
   **download** button on each story that saves it to the phone's gallery as `story_@user_<date>.<ext>`. "Check now" runs a

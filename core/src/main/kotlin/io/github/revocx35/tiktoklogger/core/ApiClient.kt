@@ -397,6 +397,21 @@ class ApiClient(baseClient: OkHttpClient, val baseUrl: HttpUrl) {
     suspend fun feedComments(id: String): FeedCommentPage = get("/api/feed/${enc(id)}/comments")
     suspend fun feedComment(id: String, text: String): FeedCommentPage = send("POST", "/api/feed/${enc(id)}/comment", FeedCommentRequest(text))
     suspend fun feedCloseComments(): OkResponse = post("/api/feed/comments/close")
+    suspend fun feedRepost(id: String, repost: Boolean): FeedRepostResponse = send("POST", "/api/feed/${enc(id)}/repost", FeedRepostRequest(repost))
+    suspend fun feedReplies(id: String, commentId: String, cursor: String? = null): FeedReplyPage =
+        get("/api/feed/${enc(id)}/comments/${enc(commentId)}/replies" + (cursor?.let { "?cursor=${enc(it)}" } ?: ""))
+    suspend fun feedReply(id: String, commentId: String, text: String, toReply: String? = null): FeedReplyPage =
+        send("POST", "/api/feed/${enc(id)}/comments/${enc(commentId)}/reply", FeedReplyRequest(text, toReply))
+    suspend fun feedCommentLike(id: String, commentId: String, like: Boolean): FeedLikeResponse =
+        send("POST", "/api/feed/${enc(id)}/comments/${enc(commentId)}/like", FeedCommentLikeRequest(like))
+
+    /* ------------------------------------------------------------- profiles */
+
+    /** A TikTok profile; "me" = the account the server is logged in with. */
+    suspend fun profile(username: String): TtProfile = get(if (username == "me") "/api/profiles/me" else "/api/profiles/${enc(username)}")
+    suspend fun profileVideos(username: String, tab: String, cursor: String? = null): ProfileVideoPage =
+        get("/api/profiles/${enc(username)}/videos?tab=${enc(tab)}" + (cursor?.let { "&cursor=${enc(it)}" } ?: ""))
+    suspend fun follow(username: String, follow: Boolean): FollowResponse = send("POST", "/api/profiles/${enc(username)}/follow", FollowRequest(follow))
 
     /* ------------------------------------------------------------------ stories */
 

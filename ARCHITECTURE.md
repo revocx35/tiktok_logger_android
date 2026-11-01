@@ -14,7 +14,7 @@ feed, a second tab); the app never contacts TikTok or its CDN. Media URLs are se
   interceptor: OAuth2 + PKCE in the system browser, bearer per request, `X-App-Authorization` swap for app tokens),
   `vnc/` (RFB client: DES for VNC auth, raw/zlib/hextile decoding).
 - **app/**: `AppRoot` routes server → signup → login/recover → recovery key → TikTok login → main;
-  `MainShell` pages: For You (**Feed**), Messages, Stories, Unsent, TikTok (VNC), Users (admin only), Settings, Search —
+  `MainShell` pages: For You (**Feed**), Messages, Stories, Unsent, **Profile** (own + anyone's, 0.6.0), TikTok (VNC), Users (admin only), Settings, Search —
   on phones the TikTok tab bar (Home · Stories · Inbox · Unsent · Profile; Profile is a bottom sheet with the other
   pages, switch account and log out), on wide screens a 72 dp icon sidebar plus "More" (see *Look*). `data/` holds `AppGraph`
   (OkHttp with pinned trust), `SecureCookieJar` (session cookie encrypted with an Android Keystore AES-GCM key),
@@ -129,13 +129,27 @@ being shown; `AppController` owns the switch:
 
 ## Tests
 
-- `core`: JSON/API contract (`ApiClientTest`, including the feed), authentik flow (`AuthentikTest`), RFB/DES
+- `core`: JSON/API contract (`ApiClientTest`, including the feed and the 0.6.0 profile/follow/repost/thread calls), authentik flow (`AuthentikTest`), RFB/DES
   (`RfbTest`), text/link handling (`TtTextTest`), formatting, and a live-server test that is skipped unless a server
   address is provided.
 - `app`: view-model selection logic, auto-save policy, the feed's rail and scaling
   (`FeedResizeTest`: the pref, the `RESIZE_MODE`/`ContentScale` mapping on a real `PlayerView`, clicking the resize
   button both ways), and screenshot render tests (Roborazzi) for the main screens.
 - CI runs `:core:test :app:testDebugUnitTest :app:lintDebug :app:assembleDebug`.
+
+## Video actions and profiles (0.6.0, server v1.15)
+
+`VideoActionsModel` holds everything one can do with the video on screen — like, repost (`POST /api/feed/:id/repost`),
+follow its author (`POST /api/profiles/:u/follow`), comments with threads (`…/comments/:cid/replies`, `…/reply`) and
+comment likes (`…/comments/:cid/like`), send to a chat — and shows what the server answered (the server clicks TikTok's
+own controls for like/repost/follow). `FeedViewModel` (For You) and `ProfileViewModel` (a profile's list) extend it, and
+both draw `VideoPane`: the player (one ExoPlayer; TikTok's captions side-loaded as WebVTT `SubtitleConfiguration`s with
+the text track disabled until the CC button, `setPlaybackSpeed` for 1/1.5/2/0.5/0.75×, a seek row polled every 250 ms),
+`FeedActionRail` (avatar → profile, follow badge, like, comments, repost, share, save, fit/fill, sound) and the
+comments dialog. "Save" downloads `/api/feed/:id/download` into the gallery's tiktok_logger album
+(`MediaOps.saveFeedVideoToGallery`). `ProfileScreen` (`ProfileRoute("me" | username)`) is the header, the list tabs
+(owner: videos, reposts, favorites, liked; others: videos, reposts) and a 3-column grid that loads the next page near
+its end; a tile opens the list in `VideoPane`, swipes move through it, and every change is mirrored into the grid.
 
 ## Checking the feed without a TikTok account
 

@@ -344,12 +344,29 @@ enum class SendMediaKind {
 // through the server: the phone never talks to TikTok or its CDN.
 
 @Serializable
-data class FeedAuthor(val username: String? = null, val name: String? = null, val avatar: String? = null)
+data class FeedAuthor(
+    val username: String? = null,
+    val name: String? = null,
+    val avatar: String? = null,
+    /** Whether the owner follows the author (null = TikTok did not say). Server v1.15. */
+    val following: Boolean? = null,
+)
 
 @Serializable data class FeedStats(val likes: Long? = null, val comments: Long? = null, val shares: Long? = null, val plays: Long? = null)
 
 @Serializable
-data class FeedVideo(val src: String? = null, val poster: String? = null, val muted: Boolean = false, val playing: Boolean = false)
+data class FeedVideo(
+    val src: String? = null,
+    val poster: String? = null,
+    val muted: Boolean = false,
+    val playing: Boolean = false,
+    /** WebVTT caption tracks (app URLs), TikTok's own auto-captions. Server v1.15. */
+    val captions: List<FeedCaption> = emptyList(),
+    /** App URL that downloads the video as a file. Server v1.15. */
+    val download: String? = null,
+)
+
+@Serializable data class FeedCaption(val lang: String = "und", val src: String)
 
 @Serializable
 data class FeedItem(
@@ -361,6 +378,10 @@ data class FeedItem(
     val stats: FeedStats = FeedStats(),
     val liked: Boolean = false,
     val video: FeedVideo? = null,
+    /** The owner's repost (null = not known yet). Server v1.15. */
+    val reposted: Boolean? = null,
+    /** False when the author turned reposts off. Server v1.15. */
+    val canRepost: Boolean = true,
 )
 
 @Serializable data class FeedCommentAuthor(val username: String? = null, val name: String? = null)
@@ -372,7 +393,46 @@ data class FeedComment(
     val text: String = "",
     val likes: Long? = null,
     val replies: List<FeedComment> = emptyList(),
+    /** The owner's like on this comment. Server v1.15. */
+    val liked: Boolean = false,
+    /** Replies in total (`replies` holds the first few). Server v1.15. */
+    val replyCount: Long? = null,
 )
+
+@Serializable data class FeedReplyPage(val comments: List<FeedComment> = emptyList(), val cursor: String? = null, val more: Boolean = false)
+@Serializable data class FeedReplyRequest(val text: String, val toReply: String? = null)
+@Serializable data class FeedCommentLikeRequest(val like: Boolean)
+@Serializable data class FeedRepostRequest(val repost: Boolean)
+@Serializable data class FeedRepostResponse(val reposted: Boolean)
+@Serializable data class FollowRequest(val follow: Boolean)
+@Serializable data class FollowResponse(val following: Boolean)
+
+/* ----------------------------------------------------------------- profiles */
+// TikTok accounts, read through the server's browser (server v1.15). Any video of a loaded list works with the
+// /api/feed/:id/* calls (like, comments, repost, share, download).
+
+@Serializable data class ProfileStats(val followers: Long? = null, val following: Long? = null, val likes: Long? = null, val videos: Long? = null)
+
+@Serializable
+data class TtProfile(
+    val id: String,
+    val username: String,
+    val name: String? = null,
+    val avatar: String? = null,
+    val bio: String? = null,
+    val link: String? = null,
+    val verified: Boolean = false,
+    val private: Boolean = false,
+    val me: Boolean = false,
+    val following: Boolean? = null,
+    val friends: Boolean = false,
+    val stats: ProfileStats = ProfileStats(),
+    /** "videos", "reposts", "liked", "favorites" — what can be opened. */
+    val tabs: List<String> = emptyList(),
+    val url: String = "",
+)
+
+@Serializable data class ProfileVideoPage(val items: List<FeedItem> = emptyList(), val cursor: String? = null, val more: Boolean = false)
 
 @Serializable data class FeedItemResponse(val item: FeedItem? = null)
 @Serializable data class FeedStepRequest(val dir: String)

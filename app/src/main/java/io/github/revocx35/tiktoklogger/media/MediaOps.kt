@@ -243,6 +243,52 @@ object MediaOps {
         }
     }
 
+    /**
+     * Saves a feed or profile video into the gallery's tiktok_logger album (server v1.15). The bytes come from the
+     * server's `/api/feed/<id>/download` — the same file the player plays — so the phone still never talks to TikTok.
+     * Never throws: the result is a toast.
+     */
+    suspend fun saveFeedVideoToGallery(context: Context, api: ApiClient, item: io.github.revocx35.tiktoklogger.core.FeedItem) {
+        if (Build.VERSION.SDK_INT < 29) {
+            Toast.makeText(context, "Saving to the gallery needs Android 10 or newer.", Toast.LENGTH_LONG).show()
+            return
+        }
+        val relative = item.video?.download ?: run {
+            Toast.makeText(context, "This video cannot be saved.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        Toast.makeText(context, "Saving the video…", Toast.LENGTH_SHORT).show()
+        try {
+            withContext(Dispatchers.IO) {
+                val who = (item.author.username ?: "video").replace(Regex("[^A-Za-z0-9_.-]"), "").take(40).ifEmpty { "video" }
+                val values = ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, "tiktok-$who-${item.id}.mp4")
+                    put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/tiktok_logger")
+                    put(MediaStore.MediaColumns.IS_PENDING, 1)
+                }
+                val resolver = context.contentResolver
+                val uri = resolver.insert(MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY), values) ?: throw IOException("cannot create file")
+                try {
+                    val url = api.mediaUrl(relative) ?: throw IOException("no media")
+                    val res = api.http.newCall(Request.Builder().url(url).build()).await()
+                    res.use {
+                        if (!it.isSuccessful) throw HttpStatusException(it.code)
+                        resolver.openOutputStream(uri, "w")?.use { out -> it.body.byteStream().use { input -> input.copyTo(out) } } ?: throw IOException("cannot write")
+                    }
+                    resolver.update(uri, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null)
+                } catch (e: Throwable) {
+                    runCatching { resolver.delete(uri, null, null) }
+                    throw e
+                }
+            }
+            Toast.makeText(context, "Saved to the gallery (tiktok_logger album).", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            Toast.makeText(context, "Could not save: ${e.userMessageForSave()}", Toast.LENGTH_LONG).show()
+        }
+    }
+
     private fun Exception.userMessageForSave(): String = when (this) {
         is HttpStatusException -> "the server answered $code"
         else -> message ?: "unknown error"

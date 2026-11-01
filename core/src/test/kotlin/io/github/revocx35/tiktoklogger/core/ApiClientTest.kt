@@ -145,6 +145,47 @@ class ApiClientTest {
     }
 
     @Test
+    fun readsProfilesAndDoesTheV115FeedActions() = runBlocking {
+        api.csrfToken = "tok"
+        server.enqueue(json("""{"id":"1","username":"owner","me":true,"following":null,"stats":{"followers":5,"likes":9},"tabs":["videos","reposts","liked","favorites"],"newField":1}"""))
+        server.enqueue(json("""{"items":[{"id":"76","author":{"username":"a","following":true},"reposted":true,"canRepost":false,"video":{"src":"/api/feed/media/x","captions":[{"lang":"eng-US","src":"/api/feed/media/v"}],"download":"/api/feed/76/download"}}],"cursor":"17","more":true}"""))
+        server.enqueue(json("""{"following":true}"""))
+        server.enqueue(json("""{"reposted":false}"""))
+        server.enqueue(json("""{"comments":[{"id":"9","text":"hi","liked":true,"replyCount":3}],"cursor":null,"more":false}"""))
+        server.enqueue(json("""{"comments":[],"cursor":null,"more":false}"""))
+        server.enqueue(json("""{"liked":false}"""))
+
+        val me = api.profile("me")
+        assertEquals("/api/profiles/me", server.takeRequest().target)
+        assertEquals(listOf("videos", "reposts", "liked", "favorites"), me.tabs)
+        assertEquals(true, me.me)
+        val page = api.profileVideos("me", "liked", "5")
+        assertEquals("/api/profiles/me/videos?tab=liked&cursor=5", server.takeRequest().target)
+        val v = page.items.single()
+        assertEquals(true, v.author.following)
+        assertEquals(true, v.reposted)
+        assertEquals(false, v.canRepost)
+        assertEquals("eng-US", v.video?.captions?.single()?.lang)
+        assertEquals("/api/feed/76/download", v.video?.download)
+
+        assertEquals(true, api.follow("some.user", true).following)
+        val f = server.takeRequest()
+        assertEquals("/api/profiles/some.user/follow", f.target)
+        assertEquals("""{"follow":true}""", f.body?.utf8())
+        assertEquals(false, api.feedRepost("76", false).reposted)
+        assertEquals("""{"repost":false}""", server.takeRequest().body?.utf8())
+        val r = api.feedReplies("76", "9")
+        assertEquals("/api/feed/76/comments/9/replies", server.takeRequest().target)
+        assertEquals(3L, r.comments.single().replyCount)
+        api.feedReply("76", "9", "yo", null)
+        val reply = server.takeRequest()
+        assertEquals("/api/feed/76/comments/9/reply", reply.target)
+        assertEquals("""{"text":"yo"}""", reply.body?.utf8())
+        api.feedCommentLike("76", "9", false)
+        assertEquals("""{"like":false}""", server.takeRequest().body?.utf8())
+    }
+
+    @Test
     fun readsTheMediaFeed() = runBlocking {
         server.enqueue(json("""{"items":[],"cursor":"41","more":false}"""))
         server.enqueue(json("""{"items":[{"chat":{"id":"1@c.us","name":"A","kind":"user"},"message":{"id":"m1","chatId":"1@c.us","type":"image","ts":5,"media":{"status":"downloaded","url":"/api/media/42","mime":"image/jpeg"}}}],"cursor":"42","more":true}"""))

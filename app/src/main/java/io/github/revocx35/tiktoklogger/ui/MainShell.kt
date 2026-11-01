@@ -101,6 +101,8 @@ import io.github.revocx35.tiktoklogger.ui.screens.SettingsScreen
 import io.github.revocx35.tiktoklogger.ui.screens.TikTokScreen
 import io.github.revocx35.tiktoklogger.ui.screens.FeedScreen
 import io.github.revocx35.tiktoklogger.ui.screens.FeedViewModel
+import io.github.revocx35.tiktoklogger.ui.screens.ProfileScreen
+import io.github.revocx35.tiktoklogger.ui.screens.ProfileViewModel
 import io.github.revocx35.tiktoklogger.ui.theme.Wa
 import io.github.revocx35.tiktoklogger.ui.theme.WaIcons
 import io.github.revocx35.tiktoklogger.ui.theme.WaType
@@ -114,6 +116,8 @@ import kotlinx.serialization.Serializable
 @Serializable object TikTokRoute
 @Serializable object FeedRoute
 @Serializable object StoriesRoute
+/** A TikTok profile (server v1.15); "me" = the account the server is logged in with. */
+@Serializable data class ProfileRoute(val username: String = "me")
 @Serializable object SettingsRoute
 @Serializable object AdminRoute
 
@@ -127,6 +131,7 @@ enum class Tab(val label: String, val icon: ImageVector, val iconOn: ImageVector
     Chats("Messages", WaIcons.inbox, WaIcons.inboxFill, tab = "Inbox"),
     Stories("Stories", WaIcons.stories, WaIcons.storiesFill, tab = "Stories"),
     Deleted("Unsent", WaIcons.deleted, WaIcons.deletedFill, tab = "Unsent"),
+    Profile("Profile", WaIcons.user, WaIcons.userFill),
     TikTok("TikTok", WaIcons.monitor, WaIcons.monitorFill),
     Admin("Users", WaIcons.group, WaIcons.groupFill, adminOnly = true),
     Settings("Settings", WaIcons.settings, WaIcons.settingsFill),
@@ -142,6 +147,7 @@ private fun tabRoute(t: Tab): Any = when (t) {
     Tab.Search -> SearchRoute()
     Tab.Feed -> FeedRoute
     Tab.Stories -> StoriesRoute
+    Tab.Profile -> ProfileRoute()
     Tab.TikTok -> TikTokRoute
     Tab.Settings -> SettingsRoute
     Tab.Admin -> AdminRoute
@@ -268,6 +274,7 @@ fun MainShell(graph: AppGraph, session: ServerSession, state: AppState, wa: TtSt
         dest.hasRoute<SearchRoute>() -> Tab.Search
         dest.hasRoute<FeedRoute>() -> Tab.Feed
         dest.hasRoute<StoriesRoute>() -> Tab.Stories
+        dest.hasRoute<ProfileRoute>() -> Tab.Profile
         dest.hasRoute<TikTokRoute>() -> Tab.TikTok
         dest.hasRoute<SettingsRoute>() -> Tab.Settings
         dest.hasRoute<AdminRoute>() -> Tab.Admin
@@ -352,7 +359,18 @@ fun MainShell(graph: AppGraph, session: ServerSession, state: AppState, wa: TtSt
                         composable<TikTokRoute> { TikTokScreen(session.api, wa) }
                         composable<FeedRoute> {
                             val vm: FeedViewModel = viewModel(key = "feed:${session.id}") { FeedViewModel(session) }
-                            FeedScreen(vm, session, wa?.connected == true, graph.prefs)
+                            FeedScreen(vm, session, wa?.connected == true, graph.prefs) { nav.navigate(ProfileRoute(it)) }
+                        }
+                        composable<ProfileRoute> { back ->
+                            val r = back.toRoute<ProfileRoute>()
+                            val vm: ProfileViewModel = viewModel(key = "profile:${session.id}:${r.username}") { ProfileViewModel(session, r.username) }
+                            ProfileScreen(
+                                vm,
+                                session,
+                                graph.prefs,
+                                onBack = if (r.username == "me") null else ({ nav.popBackStack() }),
+                                onOpenProfile = { nav.navigate(ProfileRoute(it)) },
+                            )
                         }
                         composable<StoriesRoute> {
                             val vm: StoriesViewModel = viewModel(key = "stories:${session.id}") { StoriesViewModel(session) }
