@@ -128,6 +128,9 @@ open class VideoActionsModel(protected val session: ServerSession) : ViewModel()
     var following by mutableStateOf(false)
         private set
 
+    /** Bumped whenever the comments are opened, closed or belong to another video: older answers are dropped. */
+    private var commentsGen = 0
+
     /** Replaces the item on screen; a list-backed model (a profile) mirrors it into its list. */
     protected open fun update(next: FeedItem) {
         item = next
@@ -144,6 +147,7 @@ open class VideoActionsModel(protected val session: ServerSession) : ViewModel()
         comments = null
         threads = emptyMap()
         replyTo = null
+        commentsGen++
         generation++
     }
 
@@ -218,14 +222,18 @@ open class VideoActionsModel(protected val session: ServerSession) : ViewModel()
         postError = null
         threads = emptyMap()
         replyTo = null
+        val gen = ++commentsGen
         viewModelScope.launch {
             try {
-                comments = session.api.feedComments(cur.id).comments
+                val loaded = session.api.feedComments(cur.id).comments
+                // Closed (or another video) meanwhile: the answer must not bring the dialog back.
+                if (gen == commentsGen) comments = loaded
             } catch (e: Exception) {
+                if (gen != commentsGen) return@launch
                 postError = session.fail("feed", e)
                 if (comments == null) comments = emptyList()
             } finally {
-                commentsBusy = false
+                if (gen == commentsGen) commentsBusy = false
             }
         }
     }
@@ -235,13 +243,16 @@ open class VideoActionsModel(protected val session: ServerSession) : ViewModel()
         val th = threads[c.id]
         if (th?.loading == true) return
         threads = threads + (c.id to (th ?: ReplyThread()).copy(loading = true))
+        val gen = commentsGen
         viewModelScope.launch {
             try {
                 val page = session.api.feedReplies(cur.id, c.id, th?.cursor)
+                if (gen != commentsGen) return@launch
                 val old = th?.replies ?: emptyList()
                 val merged = old + page.comments.filter { n -> old.none { it.id == n.id } }
                 threads = threads + (c.id to ReplyThread(merged, if (page.more) page.cursor else null, false))
             } catch (e: Exception) {
+                if (gen != commentsGen) return@launch
                 threads = threads + (c.id to (th ?: ReplyThread()).copy(loading = false))
                 postError = session.fail("feed", e)
             }
@@ -284,16 +295,20 @@ open class VideoActionsModel(protected val session: ServerSession) : ViewModel()
         val target = replyTo
         posting = true
         postError = null
+        val gen = commentsGen
         viewModelScope.launch {
             try {
                 if (target != null) {
                     val page = session.api.feedReply(cur.id, target.top, text.trim(), target.toReply)
+                    if (gen != commentsGen) return@launch
                     threads = threads + (target.top to ReplyThread(page.comments, if (page.more) page.cursor else null, false))
                     comments = comments?.map { if (it.id == target.top) it.copy(replyCount = maxOf(it.replyCount ?: 0, page.comments.size.toLong())) else it }
                     replyTo = null
                 } else {
-                    comments = session.api.feedComment(cur.id, text.trim()).comments
+                    val loaded = session.api.feedComment(cur.id, text.trim()).comments
+                    // The comment was posted either way: count it, but only show the list if it is still open.
                     patch(cur.id) { it.copy(stats = it.stats.copy(comments = (it.stats.comments ?: 0) + 1)) }
+                    if (gen == commentsGen) comments = loaded
                 }
             } catch (e: Exception) {
                 postError = session.fail("feed", e)
@@ -304,7 +319,9 @@ open class VideoActionsModel(protected val session: ServerSession) : ViewModel()
     }
 
     fun closeComments() {
+        commentsGen++
         comments = null
+        commentsBusy = false
         postError = null
         threads = emptyMap()
         replyTo = null

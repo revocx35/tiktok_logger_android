@@ -22,7 +22,7 @@ Read [ARCHITECTURE.md](ARCHITECTURE.md) (modules, flows, the *Look* section) and
 
 ```bash
 echo "sdk.dir=/opt/android-sdk" > local.properties          # on CT 105; local.properties is gitignored
-/usr/local/bin/heavy ./gradlew :core:test :app:testDebugUnitTest --max-workers=1   # 35 core + 45 app tests
+/usr/local/bin/heavy ./gradlew :core:test :app:testDebugUnitTest --max-workers=1   # 35 core + 47 app tests
 /usr/local/bin/heavy ./gradlew :app:recordRoborazziDebug --max-workers=1           # renders app/build/screenshots/*.png
 /usr/local/bin/heavy ./gradlew :app:lintDebug :app:assembleDebug --max-workers=1
 ```
