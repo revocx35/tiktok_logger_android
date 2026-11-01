@@ -48,6 +48,8 @@ release workflow signs with the `KEYSTORE_*` secrets and attaches the APK. There
 - Commit `local.properties`, keystores or `keystore.properties`.
 
 ## Gotchas
+- A certificate is trusted per host (`ServerTrust`, prefs key `certs:<host>`). Anything that adds one before a probe must go through `ServerTrust.trustFor(host, cert)`: `add()` writes to whichever `serverHost` is current (null, or another account's). Covered by `ServerTrustTest`.
+- Comment-sheet answers (`loadComments`/`loadReplies`/`post` in `VideoActionsModel`) are dropped when `commentsGen` moved on (sheet closed or video changed); keep that check when adding async work to the sheet.
 
 - `WaIcons` outline icons are strokes: tint works, but `fill` does not — use the `…Fill` twin for a solid look.
 - The phone tab bar has room for five slots; anything else goes into the Profile sheet (`MoreSheet`).
