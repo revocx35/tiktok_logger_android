@@ -27,8 +27,8 @@ android {
         applicationId = "io.github.revocx35.tiktoklogger"
         minSdk = 26
         targetSdk = 37
-        versionCode = 9
-        versionName = "0.6.0"
+        versionCode = 10
+        versionName = "0.7.0"
         // On-device tests (app/src/androidTest): ./gradlew :app:connectedDebugAndroidTest with an emulator running.
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

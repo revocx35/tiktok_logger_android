@@ -393,6 +393,10 @@ class ApiClient(baseClient: OkHttpClient, val baseUrl: HttpUrl) {
 
     suspend fun feed(): FeedItemResponse = get("/api/feed")
     suspend fun feedStep(dir: String): FeedItemResponse = send("POST", "/api/feed/step", FeedStepRequest(dir))
+    /** The video in view plus the next few (0.7.0): the pager swipes through these without a round trip per video. */
+    suspend fun feedWindow(limit: Int = 3): FeedWindowResponse = get("/api/feed/window?limit=$limit")
+    /** The user settled on [id]: the server's tab moves there and a fresh window comes back. */
+    suspend fun feedGoto(id: String): FeedWindowResponse = send("POST", "/api/feed/goto", FeedGotoRequest(id))
     suspend fun feedLike(id: String, like: Boolean): FeedLikeResponse = send("POST", "/api/feed/${enc(id)}/like", FeedLikeRequest(like))
     suspend fun feedComments(id: String): FeedCommentPage = get("/api/feed/${enc(id)}/comments")
     suspend fun feedComment(id: String, text: String): FeedCommentPage = send("POST", "/api/feed/${enc(id)}/comment", FeedCommentRequest(text))

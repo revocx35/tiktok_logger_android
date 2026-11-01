@@ -32,8 +32,8 @@ Through the same server API as the web UI (`shared/api.d.ts` of tiktok_logger):
   player). Failed / too large / expired media can be retried.
 - **Sending:** text, replies and photos/videos/voice messages (Android 10+), all typed into TikTok's own composer by
   the server, then confirmed by re-reading the chat.
-- **Feed:** TikTok's For You as the server sees it — one video at a time, swipe up/down (or the arrows) to move, tap to
-  pause, ♥ to like/unlike, comments (with their replies) and **Send**, which puts the video's link into one of your
+- **Feed:** TikTok's For You as the server sees it — swipe up/down like TikTok's own app (the video follows your finger,
+  the next one is already loaded and starts at once; since 0.7.0), tap to pause, double tap or ♥ to like, comments (with their replies) and **Send**, which puts the video's link into one of your
   chats, and a **Fit / Fill** button next to them that switches between the whole video with black bars and a video
   cropped to the screen (the choice is remembered). Since 0.6.0 also **repost**, **follow** the author (the badge under
   the avatar), comment **threads** with replies and comment likes, **Save** to the gallery, and a player row with a seek

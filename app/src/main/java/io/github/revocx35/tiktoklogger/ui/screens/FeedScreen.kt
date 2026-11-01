@@ -1,6 +1,15 @@
 package io.github.revocx35.tiktoklogger.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.pager.PagerState
+import androidx.compose.foundation.pager.VerticalPager
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.draw.alpha
 import androidx.compose.foundation.clickable
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -11,7 +20,6 @@ import io.github.revocx35.tiktoklogger.media.MediaOps
 import kotlinx.coroutines.delay
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -332,24 +340,45 @@ open class VideoActionsModel(protected val session: ServerSession) : ViewModel()
 /**
  * TikTok's For You, read through the server's browser (the same tab the web UI's Feed uses).
  *
- * The server drives the feed: this screen shows whatever video the server says is on screen and asks it to move.
- * Videos stream through the server, so the phone never talks to TikTok.
+ * Since 0.7.0 the screen holds a **window** of videos (the one in view and the next few, `GET /api/feed/window`) and
+ * swipes through them in a pager: the next video is already on the page under the finger, so a swipe is one smooth
+ * motion like TikTok's own app instead of a round trip per video. When the user settles on a video the server's tab
+ * is moved there (`POST /api/feed/goto`) and the answer tops the list up. Videos stream through the server, so the
+ * phone never talks to TikTok.
  */
 class FeedViewModel(session: ServerSession) : VideoActionsModel(session) {
     var loading by mutableStateOf(false)
         private set
-    var stepping by mutableStateOf(false)
+    var items by mutableStateOf<List<FeedItem>>(emptyList())
         private set
+    /** The video the user settled on (an index into [items]). */
+    var page by mutableStateOf(0)
+        private set
+    /** Bumped when the list is replaced (load/refresh), so the pager starts over at [page]. */
+    var listGeneration by mutableStateOf(0)
+        private set
+    /** A goto is on its way while the user sits near the end of the list. */
+    var loadingMore by mutableStateOf(false)
+        private set
+    /** The video the server's tab is on, so a goto is only sent when the user really moved. */
+    private var serverId: String? = null
+    private var gotoSeq = 0
 
     fun refresh() {
         if (loading) return
         loading = true
         error = null
+        gotoSeq++
+        loadingMore = false
         viewModelScope.launch {
             try {
-                val res = session.api.feed()
-                show(res.item)
-                if (res.item == null) error = "TikTok did not show a video. Try again in a moment."
+                val w = session.api.feedWindow(WINDOW)
+                items = w.items
+                serverId = w.current
+                page = w.items.indexOfFirst { it.id == w.current }.coerceAtLeast(0)
+                listGeneration++
+                show(items.getOrNull(page))
+                if (items.isEmpty()) error = "TikTok did not show a video. Try again in a moment."
             } catch (e: Exception) {
                 error = session.fail("feed", e)
             } finally {
@@ -358,22 +387,63 @@ class FeedViewModel(session: ServerSession) : VideoActionsModel(session) {
         }
     }
 
-    fun step(dir: String) {
-        if (stepping) return
-        stepping = true
-        error = null
+    /** The pager came to rest on [index]: that video becomes the one the actions work on, and the server follows. */
+    fun settle(index: Int) {
+        val next = items.getOrNull(index) ?: return
+        if (index != page || item?.id != next.id) {
+            page = index
+            show(next)
+        }
+        if (next.id == serverId) return
+        val seq = ++gotoSeq
+        loadingMore = index >= items.size - 2
         viewModelScope.launch {
             try {
-                val res = session.api.feedStep(dir)
-                if (res.item != null) show(res.item)
+                val w = session.api.feedGoto(next.id)
+                if (seq != gotoSeq) return@launch
+                serverId = w.current ?: next.id
+                items = mergeFeedWindow(items, w.items, keep = item?.id)
+                error = null
             } catch (e: Exception) {
-                error = session.fail("feed", e)
+                if (seq == gotoSeq) error = session.fail("feed", e)
             } finally {
-                stepping = false
+                if (seq == gotoSeq) loadingMore = false
             }
         }
     }
+
+    override fun update(next: FeedItem) {
+        super.update(next)
+        items = items.map { if (it.id == next.id) next else it }
+    }
+
+    override fun onFollowChanged(username: String, following: Boolean) {
+        items = items.map { if (it.author.username == username) it.copy(author = it.author.copy(following = following)) else it }
+    }
+
+    private companion object {
+        /** How many videos ahead of the one in view the server hands over (and the player pool preloads from). */
+        const val WINDOW = 4
+    }
 }
+
+/**
+ * Puts a fresh window from the server into the list without moving anything the pager already shows: known videos
+ * are refreshed in place (except [keep], the one on screen, whose local state — an optimistic like — wins), new ones
+ * are appended at the end.
+ */
+internal fun mergeFeedWindow(old: List<FeedItem>, fresh: List<FeedItem>, keep: String?): List<FeedItem> {
+    val byId = fresh.associateBy { it.id }
+    val merged = old.map { o -> if (o.id != keep) byId[o.id] ?: o else o }
+    val known = old.mapTo(HashSet()) { it.id }
+    return merged + fresh.filter { it.id !in known }
+}
+
+/** Players in the pool: the video in view and one on each side, so either swipe direction already has its frame. */
+internal const val PLAYER_POOL = 3
+
+/** The pool slot a pager page plays in. Neighbouring pages never share a slot. */
+internal fun poolSlot(page: Int): Int = page.mod(PLAYER_POOL)
 
 private fun compact(n: Long?): String = when {
     n == null -> "—"
@@ -398,18 +468,21 @@ fun FeedScreen(vm: FeedViewModel, session: ServerSession, connected: Boolean, pr
         return
     }
 
-    LaunchedEffect(Unit) { if (vm.item == null && !vm.loading) vm.refresh() }
+    LaunchedEffect(Unit) { if (vm.items.isEmpty() && !vm.loading) vm.refresh() }
 
     VideoPane(
         vm = vm,
         session = session,
         prefs = prefs,
-        stepping = vm.stepping,
-        onStep = vm::step,
+        items = vm.items,
+        page = vm.page,
+        listKey = vm.listGeneration,
+        onSettle = vm::settle,
+        loadingMore = vm.loadingMore,
         onOpenProfile = onOpenProfile,
         onRefresh = vm::refresh,
         empty = {
-            if (vm.loading || vm.stepping) Spinner(32.dp)
+            if (vm.loading) Spinner(32.dp)
             ErrorNote(vm.error)
             if (!vm.loading) WaButton("Load the feed", { vm.refresh() })
         },
@@ -426,9 +499,16 @@ private fun clock(ms: Long): String {
 private val SPEEDS = listOf(1f, 1.5f, 2f, 0.5f, 0.75f)
 
 /**
- * One video full screen with TikTok's controls (server v1.15): the action column (author → profile, follow badge,
- * like, comments, repost, send, save to the gallery, fit/fill, sound), the player row (play/pause, seek bar, speed,
- * TikTok's captions) and swipes/arrows for the next one. For You and a profile's videos both use it.
+ * The swiping video player with TikTok's controls, shared by For You and a profile's videos.
+ *
+ * A [VerticalPager] over [items]: the page follows the finger, a fling snaps to the next or previous video, and each
+ * page carries its own caption and action column so they slide with the video (0.7.0; before, a swipe asked the server
+ * for the next video and swapped it in at once). Three ExoPlayers ([PLAYER_POOL]) hold the video in view and both
+ * neighbours, prepared and buffered, so the next video's frame is already there while it slides in and starts
+ * playing the moment the page settles. The poster covers a page until its player has drawn the first frame.
+ *
+ * Actions (like, comments, repost, follow, send, save) act on [VideoActionsModel.item], the settled video; [onSettle]
+ * tells the model which one that is.
  */
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
@@ -436,16 +516,27 @@ fun VideoPane(
     vm: VideoActionsModel,
     session: ServerSession,
     prefs: Prefs,
-    stepping: Boolean,
-    onStep: (String) -> Unit,
+    items: List<FeedItem>,
+    page: Int,
+    /** A new value starts the pager over at [page] (the list was replaced). */
+    listKey: Any,
+    onSettle: (Int) -> Unit,
     onOpenProfile: (String) -> Unit,
+    loadingMore: Boolean = false,
     onRefresh: (() -> Unit)? = null,
     onClose: (() -> Unit)? = null,
     empty: @Composable () -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val player = remember(session) { buildPlayer(context, session.api.http).apply { repeatMode = Player.REPEAT_MODE_ONE } }
+    val players = remember(session) { List(PLAYER_POOL) { buildPlayer(context, session.api.http).apply { repeatMode = Player.REPEAT_MODE_ONE } } }
+    /** What each slot has loaded ("id|src"), and the slots whose first frame of that load is on screen. */
+    val loaded = remember(players) { arrayOfNulls<String>(PLAYER_POOL) }
+    val firstFrame = remember(players) { mutableStateMapOf<Int, String>() }
+    /** A decoder or network error drops the slot's load and bumps [errorTick], so the effect below loads it again
+     *  (up to three times per video) instead of leaving a frozen frame. */
+    val attempts = remember(players) { HashMap<String, Int>() }
+    var errorTick by remember { mutableStateOf(0) }
     var muted by remember { mutableStateOf(true) }
     var sending by remember { mutableStateOf(false) }
     var speed by remember { mutableStateOf(1f) }
@@ -453,183 +544,254 @@ fun VideoPane(
     var position by remember { mutableStateOf(0L) }
     var duration by remember { mutableStateOf(0L) }
     var playing by remember { mutableStateOf(true) }
+    var userPaused by remember { mutableStateOf(false) }
     var seekTo by remember { mutableStateOf<Float?>(null) }
     // Whole frame ("fit") or cropped to the screen ("fill"). Remembered across app restarts in Prefs.
     var fit by remember(prefs) { mutableStateOf(prefs.feedFitVideo) }
 
-    DisposableEffect(player) { onDispose { player.release() } }
+    DisposableEffect(players) {
+        val listeners = players.mapIndexed { slot, p ->
+            object : Player.Listener {
+                override fun onRenderedFirstFrame() {
+                    loaded[slot]?.let { firstFrame[slot] = it }
+                }
+
+                override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                    val k = loaded[slot] ?: return
+                    loaded[slot] = null
+                    attempts[k] = (attempts[k] ?: 0) + 1
+                    errorTick++
+                }
+            }.also { p.addListener(it) }
+        }
+        onDispose {
+            players.forEachIndexed { i, p ->
+                p.removeListener(listeners[i])
+                p.release()
+            }
+        }
+    }
+
+    // The page count must read the *current* list: the pager outlives the list it was created with (it grows at the end).
+    val itemCount by rememberUpdatedState(items.size)
+    val pager = key(listKey) { remember { PagerState(currentPage = page.coerceAtLeast(0)) { itemCount } } }
+    // The pager decides what plays; the model hears about it once the page has come to rest.
+    val settleNow by rememberUpdatedState(onSettle)
+    LaunchedEffect(pager) { snapshotFlow { pager.settledPage }.collect { if (it < itemCount) settleNow(it) } }
+    val settled = pager.settledPage
+    val activePlayer = players[poolSlot(settled)]
+
     val lifecycle = LocalLifecycleOwner.current.lifecycle
-    DisposableEffect(lifecycle, player) {
-        val obs = LifecycleEventObserver { _, e -> if (e == Lifecycle.Event.ON_STOP) player.pause() }
+    val resume by rememberUpdatedState { if (!userPaused) activePlayer.playWhenReady = true }
+    DisposableEffect(lifecycle, players) {
+        val obs = LifecycleEventObserver { _, e ->
+            if (e == Lifecycle.Event.ON_STOP) players.forEach { it.pause() }
+            if (e == Lifecycle.Event.ON_START) resume()
+        }
         lifecycle.addObserver(obs)
         onDispose { lifecycle.removeObserver(obs) }
     }
-    LaunchedEffect(muted) { player.volume = if (muted) 0f else 1f }
-    LaunchedEffect(speed) { player.setPlaybackSpeed(speed) }
+    LaunchedEffect(muted) { players.forEach { it.volume = if (muted) 0f else 1f } }
+    LaunchedEffect(speed) { players.forEach { it.setPlaybackSpeed(speed) } }
     LaunchedEffect(captions) {
-        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !captions).build()
+        players.forEach { it.trackSelectionParameters = it.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !captions).build() }
     }
+    LaunchedEffect(settled) { userPaused = false }
 
-    val item = vm.item
-    LaunchedEffect(item?.id, item?.video?.src, vm.generation) {
-        val src = item?.video?.src?.let { session.mediaUrl(it) }
-        if (src != null && item?.video?.src != null) {
-            // TikTok's own captions ride along as side-loaded WebVTT; the text track is switched off until asked for.
-            val subs = (item.video?.captions ?: emptyList()).mapNotNull { t ->
-                session.mediaUrl(t.src)?.let { u ->
-                    MediaItem.SubtitleConfiguration.Builder(android.net.Uri.parse(u)).setMimeType(MimeTypes.TEXT_VTT).setLanguage(t.lang.take(2).lowercase()).setLabel(t.lang).build()
+    // Load the settled video and both neighbours into their slots; only the settled one plays, the others wait at 0:00.
+    val around = (settled - 1..settled + 1).filter { it in items.indices }
+    val aroundKey = around.map { items[it].id + "|" + items[it].video?.src }
+    LaunchedEffect(settled, aroundKey, userPaused, errorTick) {
+        for (p in around) {
+            val it = items[p]
+            val slot = poolSlot(p)
+            val player = players[slot]
+            val src = it.video?.src?.let { s -> session.mediaUrl(s) }
+            val key = it.id + "|" + src
+            if (loaded[slot] != key && (attempts[key] ?: 0) < 3) {
+                loaded[slot] = key
+                firstFrame.remove(slot)
+                if (src == null) {
+                    player.stop()
+                    player.clearMediaItems()
+                } else {
+                    // TikTok's own captions ride along as side-loaded WebVTT; the text track is off until asked for.
+                    val subs = (it.video?.captions ?: emptyList()).mapNotNull { t ->
+                        session.mediaUrl(t.src)?.let { u ->
+                            MediaItem.SubtitleConfiguration.Builder(android.net.Uri.parse(u)).setMimeType(MimeTypes.TEXT_VTT).setLanguage(t.lang.take(2).lowercase()).setLabel(t.lang).build()
+                        }
+                    }
+                    player.setMediaItem(MediaItem.Builder().setUri(src).setSubtitleConfigurations(subs).build())
+                    player.prepare()
                 }
             }
-            player.setMediaItem(MediaItem.Builder().setUri(src).setSubtitleConfigurations(subs).build())
-            player.prepare()
-            player.playWhenReady = true
-        } else {
-            player.stop()
+            if (p == settled) {
+                player.playWhenReady = !userPaused
+            } else {
+                player.playWhenReady = false
+                if (player.currentPosition > 0) player.seekTo(0)
+            }
         }
     }
-    LaunchedEffect(player) {
+    LaunchedEffect(activePlayer) {
         while (true) {
-            if (seekTo == null) position = player.currentPosition
-            duration = player.duration.takeIf { it > 0 } ?: 0L
-            playing = player.playWhenReady
-            delay(250)
+            if (seekTo == null) position = activePlayer.currentPosition
+            duration = activePlayer.duration.takeIf { it > 0 } ?: 0L
+            playing = activePlayer.playWhenReady
+            delay(200)
         }
+    }
+
+    val togglePlay = {
+        userPaused = activePlayer.playWhenReady
+        activePlayer.playWhenReady = !userPaused
     }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        if (item == null) {
+        if (items.isEmpty()) {
             Column(
                 Modifier.fillMaxSize().padding(24.dp),
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) { empty() }
         } else {
-            val poster = item.video?.poster?.let { session.mediaUrl(it) }
-            if (item.video?.src != null) {
-                AndroidView(
-                    factory = { ctx ->
-                        PlayerView(ctx).apply {
-                            useController = false
-                            resizeMode = feedResizeMode(fit)
-                            setShutterBackgroundColor(android.graphics.Color.BLACK)
+            VerticalPager(
+                state = pager,
+                beyondViewportPageCount = 1,
+                key = { items.getOrNull(it)?.id ?: it },
+                modifier = Modifier.fillMaxSize(),
+            ) { p ->
+                val base = items.getOrNull(p) ?: return@VerticalPager
+                // The settled page shows the model's copy (it carries optimistic likes/follows before the list does).
+                val item = vm.item?.takeIf { p == settled && it.id == base.id } ?: base
+                val isActive = p == settled
+                val slot = poolSlot(p)
+                val attach = kotlin.math.abs(p - settled) <= 1 && item.video?.src != null
+                val loadKey = item.id + "|" + item.video?.src?.let { session.mediaUrl(it) }
+                val poster = item.video?.poster?.let { session.mediaUrl(it) }
+
+                Box(
+                    Modifier.fillMaxSize().pointerInput(p, isActive) {
+                        detectTapGestures(
+                            onTap = { if (isActive) togglePlay() },
+                            // TikTok's double tap likes (and never unlikes).
+                            onDoubleTap = { if (isActive && vm.item?.liked == false) vm.toggleLike() },
+                        )
+                    },
+                ) {
+                    if (attach) {
+                        // A new view for this slot: its first frame has to be drawn again before the poster goes.
+                        DisposableEffect(p) {
+                            firstFrame.remove(slot)
+                            onDispose {}
                         }
-                    },
-                    update = {
-                        it.player = player
-                        // The resize button only swaps the scale, so the same surface keeps playing.
-                        if (it.resizeMode != feedResizeMode(fit)) it.resizeMode = feedResizeMode(fit)
-                    },
-                    onRelease = { it.player = null },
-                    modifier = Modifier.fillMaxSize(),
-                )
-            } else if (poster != null) {
-                AsyncImage(poster, null, imageLoader = session.imageLoader, contentScale = feedContentScale(fit), modifier = Modifier.fillMaxSize())
-            }
+                        AndroidView(
+                            factory = { ctx ->
+                                (android.view.LayoutInflater.from(ctx).inflate(io.github.revocx35.tiktoklogger.R.layout.feed_player_view, null) as PlayerView).apply {
+                                    resizeMode = feedResizeMode(fit)
+                                }
+                            },
+                            update = {
+                                if (it.player !== players[slot]) it.player = players[slot]
+                                // The resize button only swaps the scale, so the same surface keeps playing.
+                                if (it.resizeMode != feedResizeMode(fit)) it.resizeMode = feedResizeMode(fit)
+                            },
+                            onRelease = { it.player = null },
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                    val showPoster = !attach || firstFrame[slot] != loadKey
+                    val posterAlpha by animateFloatAsState(if (showPoster) 1f else 0f, tween(if (showPoster) 0 else 160), label = "poster")
+                    if (poster != null && posterAlpha > 0f) {
+                        AsyncImage(poster, null, imageLoader = session.imageLoader, contentScale = feedContentScale(fit), modifier = Modifier.fillMaxSize().alpha(posterAlpha))
+                    }
+                    if (isActive && !playing && item.video?.src != null) {
+                        Box(Modifier.align(Alignment.Center).size(84.dp).clip(CircleShape).background(Color(0x55000000)).clickable { togglePlay() }, contentAlignment = Alignment.Center) {
+                            androidx.compose.material3.Icon(WaIcons.play, "Play", tint = Color.White, modifier = Modifier.size(44.dp))
+                        }
+                    }
 
-            // Tap: play/pause. Swipe up/down: next/previous video.
-            Box(
-                Modifier.fillMaxSize().pointerInput(item.id) {
-                    detectTapGestures(onTap = { player.playWhenReady = !player.playWhenReady })
-                },
-            )
-            var dragAccum by remember(item.id) { mutableStateOf(0f) }
-            Box(
-                Modifier.fillMaxSize().pointerInput(item.id) {
-                    detectVerticalDragGestures(
-                        onDragStart = { dragAccum = 0f },
-                        onDragEnd = {
-                            when {
-                                dragAccum < -140f -> onStep("next")
-                                dragAccum > 140f -> onStep("prev")
+                    // Author, caption, music and (on the settled page) the player row, over a gradient at the bottom.
+                    Column(
+                        Modifier
+                            .align(Alignment.BottomStart)
+                            .fillMaxWidth()
+                            .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xB3000000))))
+                            .padding(start = 14.dp, end = 76.dp, top = 56.dp, bottom = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Text(
+                            "@" + (item.author.username ?: item.author.name ?: "tiktok"),
+                            color = Color.White,
+                            style = WaType.chatName,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.clickable(enabled = item.author.username != null) { item.author.username?.let(onOpenProfile) },
+                        )
+                        item.caption?.takeIf { it.isNotBlank() }?.let {
+                            Text(it, color = Color.White, style = WaType.base, maxLines = 4, overflow = TextOverflow.Ellipsis)
+                        }
+                        item.music?.takeIf { it.isNotBlank() }?.let {
+                            Text(it, color = Color(0xFFDDDDDD), style = WaType.small, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        Text(
+                            "${compact(item.stats.plays)} plays · ${compact(item.stats.shares)} shares",
+                            color = Color(0xFFBBBBBB),
+                            style = WaType.small,
+                        )
+                        if (item.video?.src != null) {
+                            FeedPlayerRow(
+                                playing = isActive && playing,
+                                position = if (isActive) seekTo?.toLong() ?: position else 0L,
+                                duration = if (isActive) duration else 0L,
+                                speed = speed,
+                                hasCaptions = (item.video?.captions?.isNotEmpty() == true),
+                                captions = captions,
+                                onPlayPause = { if (isActive) togglePlay() },
+                                onSeek = { if (isActive) seekTo = it },
+                                onSeekDone = {
+                                    seekTo?.let { activePlayer.seekTo(it.toLong()) }
+                                    seekTo = null
+                                },
+                                onSpeed = { speed = SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.size] },
+                                onCaptions = { captions = !captions },
+                            )
+                        }
+                    }
+
+                    // The action column slides with its video; only the settled page's buttons act (on vm.item).
+                    FeedActionRail(
+                        likes = item.stats.likes,
+                        commentsCount = item.stats.comments,
+                        liked = item.liked,
+                        muted = muted,
+                        fit = fit,
+                        onLike = { if (isActive) vm.toggleLike() },
+                        onComments = { if (isActive) vm.loadComments() },
+                        onSend = {
+                            if (isActive) {
+                                vm.clearSendState()
+                                vm.loadChats()
+                                sending = true
                             }
-                            dragAccum = 0f
                         },
-                        onVerticalDrag = { _, delta -> dragAccum += delta },
-                    )
-                },
-            )
-            if (!playing && item.video?.src != null) {
-                Box(Modifier.align(Alignment.Center).size(84.dp).clip(CircleShape).background(Color(0x55000000)).clickable { player.playWhenReady = true }, contentAlignment = Alignment.Center) {
-                    androidx.compose.material3.Icon(WaIcons.play, "Play", tint = Color.White, modifier = Modifier.size(44.dp))
-                }
-            }
-
-            // Author, caption, music and the player row over a gradient at the bottom.
-            Column(
-                Modifier
-                    .align(Alignment.BottomStart)
-                    .fillMaxWidth()
-                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xB3000000))))
-                    .padding(start = 14.dp, end = 76.dp, top = 56.dp, bottom = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Text(
-                    "@" + (item.author.username ?: item.author.name ?: "tiktok"),
-                    color = Color.White,
-                    style = WaType.chatName,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.clickable(enabled = item.author.username != null) { item.author.username?.let(onOpenProfile) },
-                )
-                item.caption?.takeIf { it.isNotBlank() }?.let {
-                    Text(it, color = Color.White, style = WaType.base, maxLines = 4, overflow = TextOverflow.Ellipsis)
-                }
-                item.music?.takeIf { it.isNotBlank() }?.let {
-                    Text(it, color = Color(0xFFDDDDDD), style = WaType.small, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                Text(
-                    "${compact(item.stats.plays)} plays · ${compact(item.stats.shares)} shares",
-                    color = Color(0xFFBBBBBB),
-                    style = WaType.small,
-                )
-                if (item.video?.src != null) {
-                    FeedPlayerRow(
-                        playing = playing,
-                        position = seekTo?.toLong() ?: position,
-                        duration = duration,
-                        speed = speed,
-                        hasCaptions = (item.video?.captions?.isNotEmpty() == true),
-                        captions = captions,
-                        onPlayPause = { player.playWhenReady = !player.playWhenReady },
-                        onSeek = { seekTo = it },
-                        onSeekDone = {
-                            seekTo?.let { player.seekTo(it.toLong()) }
-                            seekTo = null
+                        onToggleFit = {
+                            fit = !fit
+                            prefs.feedFitVideo = fit
                         },
-                        onSpeed = { speed = SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.size] },
-                        onCaptions = { captions = !captions },
+                        onToggleMute = { muted = !muted },
+                        onRefresh = null,
+                        modifier = Modifier.align(Alignment.BottomEnd).padding(end = 8.dp, bottom = 18.dp),
+                        author = item.author,
+                        reposted = item.reposted == true,
+                        canRepost = item.canRepost,
+                        reposting = isActive && vm.reposting,
+                        onRepost = { if (isActive) vm.toggleRepost() },
+                        onSave = if (item.video?.download != null) ({ if (isActive) scope.launch { MediaOps.saveFeedVideoToGallery(context, session.api, item) } }) else null,
+                        onAuthor = item.author.username?.let { u -> { onOpenProfile(u) } },
+                        onFollow = if (item.author.username != null && item.author.following != null) ({ if (isActive) vm.toggleFollow() }) else null,
                     )
                 }
             }
-
-            FeedActionRail(
-                likes = item.stats.likes,
-                commentsCount = item.stats.comments,
-                liked = item.liked,
-                muted = muted,
-                fit = fit,
-                onLike = { vm.toggleLike() },
-                onComments = { vm.loadComments() },
-                onSend = {
-                    vm.clearSendState()
-                    vm.loadChats()
-                    sending = true
-                },
-                onToggleFit = {
-                    fit = !fit
-                    prefs.feedFitVideo = fit
-                },
-                onToggleMute = { muted = !muted },
-                onRefresh = null,
-                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 8.dp, bottom = 18.dp),
-                author = item.author,
-                reposted = item.reposted == true,
-                canRepost = item.canRepost,
-                reposting = vm.reposting,
-                onRepost = { vm.toggleRepost() },
-                onSave = if (item.video?.download != null) ({ scope.launch { MediaOps.saveFeedVideoToGallery(context, session.api, item) } }) else null,
-                onAuthor = item.author.username?.let { u -> { onOpenProfile(u) } },
-                onFollow = if (item.author.username != null && item.author.following != null) ({ vm.toggleFollow() }) else null,
-            )
 
             // Top bar: close (a profile's videos) or refresh (For You) on the left, up/down on the right.
             Row(Modifier.align(Alignment.TopStart).padding(top = 12.dp, start = 10.dp)) {
@@ -643,12 +805,13 @@ fun VideoPane(
                 Modifier.align(Alignment.TopEnd).padding(top = 12.dp, end = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                FeedArrow("↑", enabled = !stepping) { onStep("prev") }
-                FeedArrow("↓", enabled = !stepping) { onStep("next") }
+                FeedArrow("↑", enabled = settled > 0) { scope.launch { pager.animateScrollToPage(settled - 1) } }
+                FeedArrow("↓", enabled = settled < items.size - 1) { scope.launch { pager.animateScrollToPage(settled + 1) } }
             }
 
-            if (stepping) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Spinner(34.dp) }
+            // At the end of the list while the server fetches more: a small spinner, the swipe continues when they arrive.
+            if (loadingMore && settled >= items.size - 1) {
+                Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 90.dp)) { Spinner(26.dp) }
             }
             Column(Modifier.align(Alignment.TopCenter).padding(top = 60.dp, start = 16.dp, end = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 ErrorNote(vm.error)

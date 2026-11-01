@@ -95,8 +95,10 @@ class ProfileViewModel(session: ServerSession, val username: String) : VideoActi
         private set
     var followBusy by mutableStateOf(false)
         private set
+    /** The video open in the player (an index into [items]), -1 = the grid. */
+    var index by mutableStateOf(-1)
+        private set
     private var cursor: String? = null
-    private var index = -1
     private var listJob: Job? = null
 
     init {
@@ -178,14 +180,12 @@ class ProfileViewModel(session: ServerSession, val username: String) : VideoActi
         show(null)
     }
 
-    /** Swipes inside the loaded list; the next page loads when the end comes close. */
-    fun step(dir: String) {
-        if (index < 0) return
-        val next = if (dir == "next") index + 1 else index - 1
-        if (next < 0) return
-        if (next >= items.size - 3 && more) loadMore()
-        val it = items.getOrNull(next) ?: return
-        index = next
+    /** The player's pager settled on [i]; the next page of the list loads when the end comes close. */
+    fun settle(i: Int) {
+        val it = items.getOrNull(i) ?: return
+        if (i >= items.size - 3 && more) loadMore()
+        if (i == index && item?.id == it.id) return
+        index = i
         show(it)
     }
 
@@ -209,8 +209,11 @@ fun ProfileScreen(vm: ProfileViewModel, session: ServerSession, prefs: Prefs, on
             vm = vm,
             session = session,
             prefs = prefs,
-            stepping = false,
-            onStep = vm::step,
+            items = vm.items,
+            page = vm.index,
+            listKey = vm.tab,
+            onSettle = vm::settle,
+            loadingMore = vm.listLoading,
             onOpenProfile = { u -> if (u == vm.profile?.username) vm.close() else onOpenProfile(u) },
             onClose = vm::close,
         )

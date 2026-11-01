@@ -22,7 +22,7 @@ Read [ARCHITECTURE.md](ARCHITECTURE.md) (modules, flows, the *Look* section) and
 
 ```bash
 echo "sdk.dir=/opt/android-sdk" > local.properties          # on CT 105; local.properties is gitignored
-/usr/local/bin/heavy ./gradlew :core:test :app:testDebugUnitTest --max-workers=1   # 35 core + 41 app tests
+/usr/local/bin/heavy ./gradlew :core:test :app:testDebugUnitTest --max-workers=1   # 35 core + 45 app tests
 /usr/local/bin/heavy ./gradlew :app:recordRoborazziDebug --max-workers=1           # renders app/build/screenshots/*.png
 /usr/local/bin/heavy ./gradlew :app:lintDebug :app:assembleDebug --max-workers=1
 ```
@@ -54,7 +54,10 @@ release workflow signs with the `KEYSTORE_*` secrets and attaches the APK. There
 - `MessageBubble` has no time inside: the chat list (`ChatPane`) inserts centred day/time rows instead; incoming
   bubbles get a `BubbleAvatar` (shown on the first of a run). Selection mode hides the avatars.
 - `FeedActionRail`'s parameters are used by `FeedResizeTest` and `ScreenshotTest`; keep new ones optional.
-- `VideoPane` owns its ExoPlayer (released on dispose): a profile's viewer and For You never share one.
+- `VideoPane` owns a pool of three ExoPlayers (released on dispose) — a profile's viewer and For You never share one.
+  It is a `VerticalPager` over the model's list (0.7.0): `PagerState`'s page count and the settle listener read the list
+  through `rememberUpdatedState` (a captured `items.size` once froze the pager at the first window). Test clips for the
+  emulator must be MPEG-4 Part 2, not H.264 (the goldfish decoder fails with several players) — ARCHITECTURE.
 - New chat, chat actions (mute/pin/delete/block), groups and stickers are not in the server yet (waiting for live tests
   with the owner's alt account) — do not add UI for them before the server routes exist.
 - Screenshots of the real feed: `screencap` is black for `PlayerView` (SurfaceView) and while FLAG_SECURE is on — see

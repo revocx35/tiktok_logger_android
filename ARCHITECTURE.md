@@ -46,8 +46,11 @@ Styled after TikTok's own app and web UI, in step with the server's web UI (tikt
 `FeedScreen` + `FeedViewModel`. Unlike a normal infinite feed, **the server owns the feed cursor**: it reads TikTok's
 For You in its own browser tab and answers with the video that is on screen. The app therefore:
 
-- calls `GET /api/feed` on open and keeps exactly one `FeedItem`;
-- moves with `POST /api/feed/step {dir}` (swipe up/down or the arrows), showing a spinner until the new item arrives;
+- loads a **window** on open (`GET /api/feed/window?limit=4`: the video in view plus the next ones) and swipes through it
+  in a `VerticalPager` (0.7.0 — before, one `FeedItem` and `POST /api/feed/step` per swipe swapped the video in at once);
+- when the pager settles on a video, tells the server with `POST /api/feed/goto {id}` (its tab moves there) and merges
+  the answer with `mergeFeedWindow` — known videos refreshed in place, new ones appended, nothing above moves — so the
+  list keeps growing ahead of the user; a spinner shows only on the last video while that call runs;
 - likes with `POST /api/feed/:id/like` (optimistic, then the server's answer — it clicks TikTok's own button and polls
   it, and answers 409 `feed_moved` if the feed moved on, in which case the app reverts and asks for a refresh);
 - opens comments with `GET /api/feed/:id/comments` and posts with `POST /api/feed/:id/comment` (limit 150 characters,
@@ -55,8 +58,16 @@ For You in its own browser tab and answers with the video that is on screen. The
 - sends a video into a chat with the normal `POST /api/messages` path, using the canonical
   `https://www.tiktok.com/@user/video/<id>` link the server returns.
 
-Playback: one shared ExoPlayer (`buildPlayer` in `media/AudioController.kt`, an OkHttp data source so the session cookie
-is sent) with `REPEAT_MODE_ONE`; the video URL is `/api/feed/media/<ref>`, a short-lived reference the server resolves
+Playback (`VideoPane`, shared with a profile's videos): a pool of three ExoPlayers (`PLAYER_POOL`, `buildPlayer` in
+`media/AudioController.kt`, an OkHttp data source so the session cookie is sent) with `REPEAT_MODE_ONE`. Page *p* plays
+in slot `poolSlot(p) = p mod 3`, so the settled video and both neighbours are prepared and buffered at once: the next
+video's frame is already on the page while the finger drags it in, and it starts the moment the page settles (the others
+wait at 0:00). The surface is a `TextureView` (`res/layout/feed_player_view.xml`) so it moves with the page; the poster
+covers a page until its slot reports `onRenderedFirstFrame` for that video. A player error drops the slot's load and
+reloads it (three tries per video). Caption, action column and player row belong to each page and slide with it; only
+the settled page's buttons act (on `VideoActionsModel.item`). Double tap likes. Pitfall: anything the pager or its
+settle listener reads from the list must go through `rememberUpdatedState` — a captured `items.size` froze the pager at
+the first window once. the video URL is `/api/feed/media/<ref>`, a short-lived reference the server resolves
 to the signed CDN URL and streams (no Range support server-side: the server sends the whole body once). Sound is muted
 by default, like the web UI.
 
@@ -132,7 +143,7 @@ being shown; `AppController` owns the switch:
 - `core`: JSON/API contract (`ApiClientTest`, including the feed and the 0.6.0 profile/follow/repost/thread calls), authentik flow (`AuthentikTest`), RFB/DES
   (`RfbTest`), text/link handling (`TtTextTest`), formatting, and a live-server test that is skipped unless a server
   address is provided.
-- `app`: view-model selection logic, auto-save policy, the feed's rail and scaling
+- `app`: view-model selection logic, auto-save policy, the feed pager (`FeedPagerTest`: window merge, player slots), the feed's rail and scaling
   (`FeedResizeTest`: the pref, the `RESIZE_MODE`/`ContentScale` mapping on a real `PlayerView`, clicking the resize
   button both ways), and screenshot render tests (Roborazzi) for the main screens.
 - CI runs `:core:test :app:testDebugUnitTest :app:lintDebug :app:assembleDebug`.
@@ -158,6 +169,12 @@ so a local check uses a throwaway API that answers `/api/state` with `tt.state=r
 Point the app at it with `wal_prefs.xml` (`server_url=http://10.0.2.2:<port>`, `allow_http=true`,
 `secure_screen=false`) written through `run-as`, grant `android.permission.ACCESS_LOCAL_NETWORK`, and tap through with
 `uiautomator dump` + `input tap` (parse the XML per node: `content-desc` carries the button names, `bounds` the centre).
+
+For the pager, the harness serves `/api/feed/window` + `/api/feed/goto` over a list of numbered clips. Encode test clips
+as **MPEG-4 Part 2** (`ffmpeg -c:v mpeg4`), not H.264: the headless emulator's `c2.goldfish.h264.decoder` fails at
+`queueInputBuffer` with several players, which looks like a frozen feed. Drive it with `input swipe 540 1700 540 600 120`
+(one per ~2 s; faster ones land in the snap animation on a loaded host) and read the caption/time from `uiautomator dump`.
+With the TextureView surface, `screencap` shows the video frames.
 
 Two capture limits: `screencap` is black while FLAG_SECURE is on, and it is **also** black for video inside a
 `PlayerView` (a SurfaceView), even with the flag off — `screenrecord` in this emulator is no better. To see the

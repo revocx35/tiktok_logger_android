@@ -436,6 +436,9 @@ data class TtProfile(
 
 @Serializable data class FeedItemResponse(val item: FeedItem? = null)
 @Serializable data class FeedStepRequest(val dir: String)
+/** `GET /api/feed/window` and `POST /api/feed/goto`: the video in view ([current]) and the ones after it. */
+@Serializable data class FeedWindowResponse(val items: List<FeedItem> = emptyList(), val current: String? = null)
+@Serializable data class FeedGotoRequest(val id: String)
 @Serializable data class FeedLikeRequest(val like: Boolean)
 @Serializable data class FeedLikeResponse(val liked: Boolean = false)
 @Serializable data class FeedCommentRequest(val text: String)
