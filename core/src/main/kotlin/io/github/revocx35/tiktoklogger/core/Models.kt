@@ -468,6 +468,35 @@ data class AdminUser(
     val status: UserStatus = UserStatus.Unknown,
     /** State of the user's TikTok link; null when the user's worker could not be asked. */
     val tt: TtState? = null,
+    /** The admin's TikTok session schedule for this user; null when the worker could not be asked. */
+    val ttSchedule: TtScheduleView? = null,
+)
+
+@Serializable
+enum class TtScheduleMode {
+    @SerialName("on") On,
+    @SerialName("off") Off,
+    @SerialName("scheduled") Scheduled,
+}
+
+@Serializable
+enum class TtPhase {
+    @SerialName("on") On,
+    @SerialName("off") Off,
+}
+
+/** [mode] On = always running, Off = browser shut down, Scheduled = off for [offMinutes] then on for [onMinutes]. */
+@Serializable
+data class TtScheduleView(
+    val mode: TtScheduleMode = TtScheduleMode.On,
+    val offMinutes: Int = 240,
+    val onMinutes: Int = 20,
+    val randomize: Boolean = false,
+    val offJitterMinutes: Int = 30,
+    val onJitterMinutes: Int = 5,
+    val phase: TtPhase = TtPhase.On,
+    /** When the current phase ends (ms since epoch); null unless scheduled. */
+    val phaseUntil: Long? = null,
 )
 
 @Serializable

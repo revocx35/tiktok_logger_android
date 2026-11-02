@@ -34,6 +34,8 @@ import io.github.revocx35.tiktoklogger.core.AdminUser
 import io.github.revocx35.tiktoklogger.core.ApiClient
 import io.github.revocx35.tiktoklogger.core.ResetMode
 import io.github.revocx35.tiktoklogger.core.ResetOutcome
+import io.github.revocx35.tiktoklogger.core.TtPhase
+import io.github.revocx35.tiktoklogger.core.TtScheduleMode
 import io.github.revocx35.tiktoklogger.core.UserRole
 import io.github.revocx35.tiktoklogger.core.UserStatus
 import io.github.revocx35.tiktoklogger.core.TtState
@@ -41,6 +43,7 @@ import io.github.revocx35.tiktoklogger.core.TtStatus
 import io.github.revocx35.tiktoklogger.core.userMessage
 import io.github.revocx35.tiktoklogger.ui.LocalFormatter
 import io.github.revocx35.tiktoklogger.ui.components.Badge
+import io.github.revocx35.tiktoklogger.ui.components.CheckRow
 import io.github.revocx35.tiktoklogger.ui.components.BadgeTone
 import io.github.revocx35.tiktoklogger.ui.components.BtnStyle
 import io.github.revocx35.tiktoklogger.ui.components.Divider
@@ -145,6 +148,7 @@ private fun UsersSection(d: AdminDeps, o: AdminOverview, reload: () -> Unit) {
     var adding by remember { mutableStateOf(false) }
     var resetting by remember { mutableStateOf<AdminUser?>(null) }
     var deleting by remember { mutableStateOf<AdminUser?>(null) }
+    var session by remember { mutableStateOf<AdminUser?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var busyId by remember { mutableStateOf<Int?>(null) }
     val scope = rememberCoroutineScope()
@@ -172,6 +176,7 @@ private fun UsersSection(d: AdminDeps, o: AdminOverview, reload: () -> Unit) {
                 UserRow(d, o, u, busy = busyId == u.id,
                     onPort = { port -> patch(u) { d.api.adminSetUserPort(u.id, port) } },
                     onToggle = { patch(u) { d.api.adminSetUserDisabled(u.id, !u.disabled) } },
+                    onSession = { session = u },
                     onReset = { resetting = u },
                     onDelete = { deleting = u },
                 )
@@ -182,12 +187,13 @@ private fun UsersSection(d: AdminDeps, o: AdminOverview, reload: () -> Unit) {
         WaButton("Add a user", { adding = true }, style = BtnStyle.Primary, icon = WaIcons.plus, enabled = o.users.size < o.maxUsers)
     }
     if (adding) CreateDialog(d, o, onClose = { adding = false; reload() })
+    session?.let { SessionDialog(d, it, onClose = { session = null }, onDone = reload) }
     resetting?.let { ResetDialog(d, o, it, onClose = { resetting = null }, onDone = reload) }
     deleting?.let { DeleteDialog(d, it, onClose = { deleting = null }, onDone = reload) }
 }
 
 @Composable
-private fun UserRow(d: AdminDeps, o: AdminOverview, u: AdminUser, busy: Boolean, onPort: (Int?) -> Unit, onToggle: () -> Unit, onReset: () -> Unit, onDelete: () -> Unit) {
+private fun UserRow(d: AdminDeps, o: AdminOverview, u: AdminUser, busy: Boolean, onPort: (Int?) -> Unit, onToggle: () -> Unit, onSession: () -> Unit, onReset: () -> Unit, onDelete: () -> Unit) {
     val c = Wa.colors
     val fmt = LocalFormatter.current
     val (label, tone) = statusOf(u)
@@ -204,12 +210,17 @@ private fun UserRow(d: AdminDeps, o: AdminOverview, u: AdminUser, busy: Boolean,
                 " · last sign-in ${u.lastLoginAt?.let { fmt.dateTime(it) } ?: "—"}",
             style = WaType.small,
         )
+        scheduleLine(u, fmt::dateTime)?.let { MutedText(it, style = WaType.small) }
+        if (u.status == UserStatus.Active && u.role == UserRole.Admin) {
+            WaButton("Session…", onSession, tiny = true, style = BtnStyle.Ghost)
+        }
         if (u.role != UserRole.Admin) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 FilterChip("Default :${o.defaultPort}", u.port == null) { if (!busy && u.port != null) onPort(null) }
                 for (p in o.ports) FilterChip(":${p.port}", u.port == p.port) { if (!busy && u.port != p.port) onPort(p.port) }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (u.status == UserStatus.Active) WaButton("Session…", onSession, tiny = true, style = BtnStyle.Ghost)
                 WaButton(if (u.disabled) "Enable" else "Disable", onToggle, tiny = true, enabled = !busy, style = BtnStyle.Ghost)
                 WaButton("Reset…", onReset, tiny = true, style = BtnStyle.Ghost)
                 WaButton("Delete…", onDelete, tiny = true, style = BtnStyle.Danger)
@@ -281,6 +292,112 @@ private fun CreateDialog(d: AdminDeps, o: AdminOverview, onClose: () -> Unit) {
 private fun Reauth(d: AdminDeps, password: String, onPassword: (String) -> Unit, totp: String, onTotp: (String) -> Unit) {
     WaTextField(password, onPassword, "Your admin password", password = true, imeAction = if (d.totpEnabled) ImeAction.Next else ImeAction.Done)
     if (d.totpEnabled) WaTextField(totp, { onTotp(it.filter { ch -> ch.isDigit() || ch == ' ' }.take(7)) }, "Authentication code", keyboardType = KeyboardType.NumberPassword, imeAction = ImeAction.Done)
+}
+
+/** "4 h 30 min" for a minute count. */
+internal fun humanMinutes(total: Int): String {
+    val h = total / 60
+    val m = total % 60
+    return if (h > 0 && m > 0) "$h h $m min" else if (h > 0) "$h h" else "$m min"
+}
+
+/** One-line summary of the session schedule for the user list (null = always on, nothing to say). */
+internal fun scheduleLine(u: AdminUser, fmt: (Long) -> String): String? {
+    val sc = u.ttSchedule ?: return null
+    return when (sc.mode) {
+        TtScheduleMode.On -> null
+        TtScheduleMode.Off -> "Session: always off"
+        TtScheduleMode.Scheduled -> "Session: scheduled · ${if (sc.phase == TtPhase.On) "on" else "off"}" + (sc.phaseUntil?.let { " until ${fmt(it)}" } ?: "")
+    }
+}
+
+@Composable
+private fun SessionDialog(d: AdminDeps, user: AdminUser, onClose: () -> Unit, onDone: () -> Unit) {
+    val cur = user.ttSchedule
+    var mode by remember { mutableStateOf(cur?.mode ?: TtScheduleMode.On) }
+    var off by remember { mutableStateOf((cur?.offMinutes ?: 240).toString()) }
+    var on by remember { mutableStateOf((cur?.onMinutes ?: 20).toString()) }
+    var randomize by remember { mutableStateOf(cur?.randomize ?: false) }
+    var offJ by remember { mutableStateOf((cur?.offJitterMinutes ?: 30).toString()) }
+    var onJ by remember { mutableStateOf((cur?.onJitterMinutes ?: 5).toString()) }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    val fmt = LocalFormatter.current
+
+    val offM = off.toIntOrNull() ?: 0
+    val onM = on.toIntOrNull() ?: 0
+    val offJm = offJ.toIntOrNull() ?: 0
+    val onJm = onJ.toIntOrNull() ?: 0
+    val problem = when {
+        mode != TtScheduleMode.Scheduled -> null
+        offM !in 1..10080 || onM !in 1..10080 -> "Both times must be between 1 minute and 7 days."
+        randomize && (offJm !in 0 until offM) -> "The random range of the off time must be shorter than the off time."
+        randomize && (onJm !in 0 until onM) -> "The random range of the on time must be shorter than the on time."
+        else -> null
+    }
+
+    WaDialog("TikTok session · ${user.username}", onClose) {
+        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                FilterChip("Always on", mode == TtScheduleMode.On) { mode = TtScheduleMode.On }
+                FilterChip("Always off", mode == TtScheduleMode.Off) { mode = TtScheduleMode.Off }
+                FilterChip("Scheduled", mode == TtScheduleMode.Scheduled) { mode = TtScheduleMode.Scheduled }
+            }
+            MutedText(
+                when (mode) {
+                    TtScheduleMode.On -> "The TikTok session runs all the time and every message is logged."
+                    TtScheduleMode.Off -> "The TikTok browser is shut down (the login is kept). Nothing is logged until you switch it on."
+                    TtScheduleMode.Scheduled -> "Off for a while, then on for a while, over and over. It starts with the on time."
+                },
+                style = WaType.small,
+            )
+            if (mode == TtScheduleMode.Scheduled) {
+                WaTextField(off, { off = it.filter(Char::isDigit).take(5) }, "Off for (minutes)", keyboardType = KeyboardType.Number)
+                WaTextField(on, { on = it.filter(Char::isDigit).take(5) }, "Then on for (minutes)", keyboardType = KeyboardType.Number)
+                CheckRow(randomize, { randomize = it }, "Randomize the lengths (± a random amount)")
+                if (randomize) {
+                    WaTextField(offJ, { offJ = it.filter(Char::isDigit).take(5) }, "Off time ± (minutes)", keyboardType = KeyboardType.Number)
+                    WaTextField(onJ, { onJ = it.filter(Char::isDigit).take(5) }, "On time ± (minutes)", keyboardType = KeyboardType.Number)
+                }
+                if (problem == null) {
+                    MutedText(
+                        (if (randomize) "Off for ${humanMinutes(maxOf(1, offM - offJm))} – ${humanMinutes(offM + offJm)}, then on for ${humanMinutes(maxOf(1, onM - onJm))} – ${humanMinutes(onM + onJm)}."
+                        else "Off for ${humanMinutes(offM)}, then on for ${humanMinutes(onM)}.") +
+                            " While it is off nothing is logged; the log catches up when it comes back on (a message unsent during the off time can be missed).",
+                        style = WaType.small,
+                    )
+                }
+            }
+            if (cur != null && cur.mode != TtScheduleMode.On) {
+                MutedText("Right now: ${if (cur.phase == TtPhase.On) "on" else "off"}" + (cur.phaseUntil?.let { " until ${fmt.dateTime(it)}" } ?: "") + ".", style = WaType.small)
+            }
+            ErrorNote(error ?: problem)
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                WaButton("Save", {
+                    busy = true
+                    error = null
+                    scope.launch {
+                        try {
+                            d.api.adminSetTtSchedule(
+                                user.id, mode,
+                                offM.coerceIn(1, 10080), onM.coerceIn(1, 10080), randomize,
+                                if (randomize) offJm else (cur?.offJitterMinutes ?: 30),
+                                if (randomize) onJm else (cur?.onJitterMinutes ?: 5),
+                            )
+                            onDone()
+                            onClose()
+                        } catch (e: Exception) {
+                            error = e.userMessage()
+                        } finally {
+                            busy = false
+                        }
+                    }
+                }, style = BtnStyle.Primary, busy = busy, enabled = problem == null)
+                WaButton("Cancel", onClose, style = BtnStyle.Ghost)
+            }
+        }
+    }
 }
 
 @Composable

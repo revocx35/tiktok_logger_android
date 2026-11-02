@@ -20,6 +20,8 @@ feed, a second tab); the app never contacts TikTok or its CDN. Media URLs are se
   (OkHttp with pinned trust), `SecureCookieJar` (session cookie encrypted with an Android Keystore AES-GCM key),
   `ServerTrust`, `AuthentikSignIn` (Custom Tab login, `AuthentikRedirectActivity` for `<applicationId>:/authentik`,
   Keystore-encrypted token store), `AppController` (state/`tt` status/events), `Prefs`, `AutoSave`.
+  The Users page (0.8.0) has a **Session…** dialog per user (`SessionDialog` in `AdminScreen.kt`): TikTok session always on / always off /
+  scheduled (off X min, on Y min, optional ± randomizer) via `PUT /api/admin/users/:id/tt-schedule`; `AdminUser.ttSchedule` is read-only state.
 
 ## Look (0.5.0)
 

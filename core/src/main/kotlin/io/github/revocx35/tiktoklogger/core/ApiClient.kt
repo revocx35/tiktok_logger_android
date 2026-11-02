@@ -279,6 +279,17 @@ class ApiClient(baseClient: OkHttpClient, val baseUrl: HttpUrl) {
         put("disabled", JsonPrimitive(disabled))
     }
 
+    suspend fun adminSetTtSchedule(
+        id: Int, mode: TtScheduleMode, offMinutes: Int, onMinutes: Int, randomize: Boolean, offJitterMinutes: Int, onJitterMinutes: Int,
+    ): TtScheduleView = sendJson("PUT", "/api/admin/users/$id/tt-schedule") {
+        put("mode", JsonPrimitive(when (mode) { TtScheduleMode.On -> "on"; TtScheduleMode.Off -> "off"; TtScheduleMode.Scheduled -> "scheduled" }))
+        put("offMinutes", JsonPrimitive(offMinutes))
+        put("onMinutes", JsonPrimitive(onMinutes))
+        put("randomize", JsonPrimitive(randomize))
+        put("offJitterMinutes", JsonPrimitive(offJitterMinutes))
+        put("onJitterMinutes", JsonPrimitive(onJitterMinutes))
+    }
+
     suspend fun adminResetUser(id: Int, mode: ResetMode, customPassword: String?, adminPassword: String, totp: String?): ResetUserResponse =
         sendJson("POST", "/api/admin/users/$id/reset") {
             put("mode", JsonPrimitive(if (mode == ResetMode.Wipe) "wipe" else "recovery"))

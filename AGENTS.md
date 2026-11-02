@@ -64,3 +64,4 @@ release workflow signs with the `KEYSTORE_*` secrets and attaches the APK. There
   with the owner's alt account) — do not add UI for them before the server routes exist.
 - Screenshots of the real feed: `screencap` is black for `PlayerView` (SurfaceView) and while FLAG_SECURE is on — see
   ARCHITECTURE "Checking the feed without a TikTok account".
+- **Admin session schedule (0.8.0):** `TtScheduleView`/`TtScheduleMode` mirror the server's `shared/api.d.ts`; the server adds no `TtState` value for "switched off" (it is `idle` + detail), so don't add one here either.
