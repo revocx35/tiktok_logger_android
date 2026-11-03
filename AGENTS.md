@@ -65,3 +65,5 @@ release workflow signs with the `KEYSTORE_*` secrets and attaches the APK. There
 - Screenshots of the real feed: `screencap` is black for `PlayerView` (SurfaceView) and while FLAG_SECURE is on — see
   ARCHITECTURE "Checking the feed without a TikTok account".
 - **Admin session schedule (0.8.0):** `TtScheduleView`/`TtScheduleMode` mirror the server's `shared/api.d.ts`; the server adds no `TtState` value for "switched off" (it is `idle` + detail), so don't add one here either.
+
+- Password managers (Bitwarden): `WaTextField` sets Compose autofill `contentType` (Username / Password / NewPassword). Tag every login/signup/password field with it, or the manager only fills the password.
